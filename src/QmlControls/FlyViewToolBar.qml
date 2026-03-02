@@ -106,9 +106,9 @@ Rectangle {
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
         anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.66
-        visible:                _activeVehicle && !_communicationLost && x > (toolsFlickable.x + toolsFlickable.contentWidth + ScreenTools.defaultFontPixelWidth)
+        visible:                _activeVehicle && !_communicationLost && _activeBrandImage.length > 0 && x > (toolsFlickable.x + toolsFlickable.contentWidth + ScreenTools.defaultFontPixelWidth)
         fillMode:               Image.PreserveAspectFit
-        source:                 _outdoorPalette ? _brandImageOutdoor : _brandImageIndoor
+        source:                 _activeBrandImage
         mipmap:                 true
 
         property bool   _outdoorPalette:        qgcPal.globalTheme === QGCPalette.Light
@@ -119,6 +119,7 @@ Rectangle {
         property bool   _userBrandingOutdoor:   QGroundControl.settingsManager.brandImageSettings.visible && _userBrandImageOutdoor.length != 0
         property string _brandImageIndoor:      brandImageIndoor()
         property string _brandImageOutdoor:     brandImageOutdoor()
+        property string _activeBrandImage:      _outdoorPalette ? _brandImageOutdoor : _brandImageIndoor
 
         function brandImageIndoor() {
             if (_userBrandingIndoor) {
@@ -130,7 +131,7 @@ Rectangle {
                     if (_corePluginBranding) {
                         return QGroundControl.corePlugin.brandImageIndoor
                     } else {
-                        return _activeVehicle ? _activeVehicle.brandImageIndoor : ""
+                        return ""
                     }
                 }
             }
@@ -146,7 +147,7 @@ Rectangle {
                     if (_corePluginBranding) {
                         return QGroundControl.corePlugin.brandImageOutdoor
                     } else {
-                        return _activeVehicle ? _activeVehicle.brandImageOutdoor : ""
+                        return ""
                     }
                 }
             }
