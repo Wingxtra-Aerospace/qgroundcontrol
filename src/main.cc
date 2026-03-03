@@ -14,6 +14,10 @@
     #include <QtCore/QProcessEnvironment>
 #endif
 
+#ifdef QGC_STREAMING_3D
+    #include <QtWebEngineQuick/QtWebEngineQuick>
+#endif
+
 #include "QGCApplication.h"
 #include "QGCLogging.h"
 #include "CmdLineOptParser.h"
@@ -96,6 +100,31 @@ int main(int argc, char *argv[])
 
     ParseCmdLineOptions(argc, argv, rgCmdLineOptions, std::size(rgCmdLineOptions), false);
 
+#ifdef Q_OS_WIN
+    // Set our own OpenGL buglist
+    // qputenv("QT_OPENGL_BUGLIST", ":/opengl/resources/opengl/buglist.json");
+
+    // Allow for command line override of renderer
+    for (int i = 0; i < argc; i++) {
+        const QString arg(argv[i]);
+        if (arg == QStringLiteral("-desktop")) {
+            QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
+            break;
+        } else if (arg == QStringLiteral("-swrast")) {
+            QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
+            break;
+        }
+    }
+#endif
+
+#ifdef QGC_STREAMING_3D
+    // Must be set before any Q(Core)Application instance is created.
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", QByteArrayLiteral("--enable-webgl --ignore-gpu-blocklist --enable-unsafe-swiftshader"));
+    QtWebEngineQuick::initialize();
+    qDebug() << "[Streaming3D] WebEngineQuick initialized on GUI thread";
+#endif
+
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     // We make the runguard key different for custom and non custom
     // builds, so they can be executed together in the same device.
@@ -139,23 +168,6 @@ int main(int argc, char *argv[])
     // Prevent Apple's app nap from screwing us over
     // tip: the domain can be cross-checked on the command line with <defaults domains>
     QProcess::execute("defaults", {"write org.qgroundcontrol.qgroundcontrol NSAppSleepDisabled -bool YES"});
-#endif
-
-#ifdef Q_OS_WIN
-    // Set our own OpenGL buglist
-    // qputenv("QT_OPENGL_BUGLIST", ":/opengl/resources/opengl/buglist.json");
-
-    // Allow for command line override of renderer
-    for (int i = 0; i < argc; i++) {
-        const QString arg(argv[i]);
-        if (arg == QStringLiteral("-desktop")) {
-            QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
-            break;
-        } else if (arg == QStringLiteral("-swrast")) {
-            QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
-            break;
-        }
-    }
 #endif
 
 #ifdef QT_DEBUG

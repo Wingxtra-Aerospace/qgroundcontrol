@@ -19,17 +19,11 @@
     "name":             "streamingProvider",
     "shortDesc":        "Online streaming provider for the 3D viewer.",
     "type":             "string",
-    "default":          "ArcGIS"
+    "default":          "Cesium"
 },
 {
     "name":             "streamingProviderToken",
     "shortDesc":        "Optional access token for the online 3D streaming provider.",
-    "type":             "string",
-    "default":          ""
-},
-{
-    "name":             "streamingBuildingsLayerUrl",
-    "shortDesc":        "ArcGIS Scene Layer URL used for streamed 3D buildings.",
     "type":             "string",
     "default":          ""
 },

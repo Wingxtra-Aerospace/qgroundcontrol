@@ -1,15 +1,11 @@
 (function () {
     const statusElement = document.getElementById("status");
-    const buildingsToggle = document.getElementById("buildings-toggle");
 
     let viewer = null;
-    let buildingsLayer = null;
-    let buildingsLoadInProgress = false;
     let interactionHandler = null;
     let streamingConfig = {
-        provider: "ArcGIS",
-        token: "",
-        buildingsLayerUrl: ""
+        provider: "Cesium",
+        token: ""
     };
     let activeStatusType = "";
     let pendingMapViewState = null;
@@ -26,6 +22,9 @@
     const RELIABLE_CENTER_PITCH_RAD = Cesium.Math.toRadians(-55.0);
     const MIN_DELIBERATE_CENTER_MOVE_KM = 0.02;
     const MAX_UNRELIABLE_CENTER_MOVE_KM = 400.0;
+    const CONTROLS_AUTO_HIDE_DELAY_MS = 1800;
+
+    let controlsHideTimer = null;
 
     function clampValue(value, minValue, maxValue) {
         return Math.max(minValue, Math.min(maxValue, value));
@@ -74,20 +73,16 @@
         const tokenValue = config && config.token !== undefined && config.token !== null
             ? String(config.token).trim()
             : "";
-        const buildingsLayerUrlValue = config && config.buildingsLayerUrl !== undefined && config.buildingsLayerUrl !== null
-            ? String(config.buildingsLayerUrl).trim()
-            : "";
 
         return {
-            provider: providerValue.length > 0 ? providerValue : "ArcGIS",
-            token: tokenValue,
-            buildingsLayerUrl: buildingsLayerUrlValue
+            provider: providerValue.length > 0 ? providerValue : "Cesium",
+            token: tokenValue
         };
     }
 
     function applyStreamingConfig(config) {
         streamingConfig = normalizeConfig(config);
-        if (window.Cesium && /ion/i.test(streamingConfig.provider)) {
+        if (window.Cesium) {
             Cesium.Ion.defaultAccessToken = streamingConfig.token;
         }
     }
@@ -128,6 +123,39 @@
         if (activeStatusType === "warning") {
             setStatus("", "");
         }
+    }
+
+    function setControlsVisible(visible) {
+        if (!document || !document.body) {
+            return;
+        }
+
+        document.body.classList.toggle("controls-visible", Boolean(visible));
+    }
+
+    function bumpControlsVisibility() {
+        setControlsVisible(true);
+
+        if (controlsHideTimer) {
+            window.clearTimeout(controlsHideTimer);
+        }
+
+        controlsHideTimer = window.setTimeout(function () {
+            setControlsVisible(false);
+        }, CONTROLS_AUTO_HIDE_DELAY_MS);
+    }
+
+    function installControlsVisibilityHandlers() {
+        const revealControls = function () {
+            bumpControlsVisibility();
+        };
+
+        window.addEventListener("mousemove", revealControls, { passive: true });
+        window.addEventListener("wheel", revealControls, { passive: true });
+        window.addEventListener("touchstart", revealControls, { passive: true });
+        window.addEventListener("keydown", revealControls);
+
+        bumpControlsVisibility();
     }
 
     function normalizeLongitude(longitude) {
@@ -333,68 +361,6 @@
         };
     }
 
-    async function loadBuildings() {
-        if (!viewer || buildingsLoadInProgress) {
-            return;
-        }
-
-        const shouldShowBuildings = !buildingsToggle || Boolean(buildingsToggle.checked);
-        if (!shouldShowBuildings) {
-            if (buildingsLayer) {
-                buildingsLayer.show = false;
-                viewer.scene.requestRender();
-            }
-            clearWarning();
-            return;
-        }
-
-        if (buildingsLayer) {
-            buildingsLayer.show = true;
-            viewer.scene.requestRender();
-            clearWarning();
-            return;
-        }
-
-        if (!streamingConfig.buildingsLayerUrl) {
-            setWarning("3D buildings layer URL is not configured. Base globe remains active.");
-            return;
-        }
-
-        buildingsLoadInProgress = true;
-        try {
-            const i3sOptions = {};
-            if (streamingConfig.token.length > 0) {
-                i3sOptions.token = streamingConfig.token;
-            }
-
-            const i3sProvider = await Cesium.I3SDataProvider.fromUrl(streamingConfig.buildingsLayerUrl, i3sOptions);
-            i3sProvider.show = true;
-            viewer.scene.primitives.add(i3sProvider);
-            buildingsLayer = i3sProvider;
-            clearWarning();
-            viewer.scene.requestRender();
-        } catch (buildingsError) {
-            console.warn(buildingsError);
-            const tokenHint = streamingConfig.token.length > 0 ? "" : " Add an ArcGIS token in Fly View settings if your layer requires authentication.";
-            setWarning("3D buildings are unavailable (ArcGIS Scene Layer)." + tokenHint);
-            if (buildingsToggle) {
-                buildingsToggle.checked = false;
-            }
-        } finally {
-            buildingsLoadInProgress = false;
-        }
-    }
-
-    function setupBuildingsToggle() {
-        if (!buildingsToggle) {
-            return;
-        }
-
-        buildingsToggle.addEventListener("change", function () {
-            void loadBuildings();
-        });
-    }
-
     function setupInteractionTracking() {
         if (!viewer || !viewer.scene || !viewer.scene.canvas || !window.Cesium) {
             return;
@@ -532,7 +498,15 @@
             requestRenderMode: true
         };
 
-        if (compatibilityMode) {
+        if (compatibilityMode === "webgl2-compat") {
+            options.contextOptions = {
+                webgl: {
+                    antialias: false,
+                    failIfMajorPerformanceCaveat: false,
+                    powerPreference: "low-power"
+                }
+            };
+        } else if (compatibilityMode === "webgl1-compat") {
             options.contextOptions = {
                 requestWebgl1: true,
                 webgl: {
@@ -584,10 +558,6 @@
 
     window.__qgcApplyStreaming3DConfig = function (config) {
         applyStreamingConfig(config);
-
-        if (viewer && (!buildingsToggle || buildingsToggle.checked) && !buildingsLayer && !buildingsLoadInProgress) {
-            void loadBuildings();
-        }
     };
 
     async function createViewer() {
@@ -612,12 +582,21 @@
 
                 console.warn(primaryCreateError);
                 setWarning("Primary WebGL path failed. Retrying in compatibility mode.");
-                viewer = createViewerInstance(terrainProvider, true);
+                try {
+                    viewer = createViewerInstance(terrainProvider, "webgl2-compat");
+                } catch (secondaryCreateError) {
+                    if (!isWebGlInitializationError(secondaryCreateError)) {
+                        throw secondaryCreateError;
+                    }
+
+                    console.warn(secondaryCreateError);
+                    setWarning("WebGL2 compatibility failed. Retrying with WebGL1 fallback.");
+                    viewer = createViewerInstance(terrainProvider, "webgl1-compat");
+                }
             }
 
             viewer.terrainProvider = terrainProvider;
             await installBaseImageryLayer();
-            setupBuildingsToggle();
             setupInteractionTracking();
             viewer.scene.globe.depthTestAgainstTerrain = true;
             const initialMapViewState = normalizeMapViewState(window.__qgcMapViewState || pendingMapViewState);
@@ -628,7 +607,7 @@
             viewer.scene.requestRender();
 
             window.__qgcCesiumViewer = viewer;
-            void loadBuildings();
+            installControlsVisibilityHandlers();
         } catch (error) {
             console.error(error);
             setError("Unable to initialize streamed Cesium globe. WebGL/GPU initialization failed.");

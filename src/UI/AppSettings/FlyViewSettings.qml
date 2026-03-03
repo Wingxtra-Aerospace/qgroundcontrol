@@ -42,7 +42,6 @@ SettingsPage {
     property Fact   _viewer3DEnabled:                       _viewer3DSettings.enabled
     property Fact   _viewer3DOsmFilePath:                   _viewer3DSettings.osmFilePath
     property Fact   _viewer3DStreamingProviderToken:        _viewer3DSettings.streamingProviderToken
-    property Fact   _viewer3DStreamingBuildingsLayerUrl:    _viewer3DSettings.streamingBuildingsLayerUrl
     property Fact   _viewer3DBuildingLevelHeight:           _viewer3DSettings.buildingLevelHeight
     property Fact   _viewer3DAltitudeBias:                  _viewer3DSettings.altitudeBias
 
@@ -331,23 +330,15 @@ SettingsPage {
             QGCLabel {
                 Layout.fillWidth:   true
                 wrapMode:           Text.WordWrap
-                text:               qsTr("Online streaming 3D (ArcGIS)")
+                text:               qsTr("Online streaming 3D (Terrain + Imagery)")
             }
 
             LabelledFactTextField {
                 Layout.fillWidth:   true
-                label:              qsTr("ArcGIS Token (Optional)")
+                label:              qsTr("Streaming Provider Token (Optional)")
                 fact:               _viewer3DStreamingProviderToken
                 enabled:            _viewer3DEnabled.rawValue
                 visible:            _viewer3DStreamingProviderToken.visible
-            }
-
-            LabelledFactTextField {
-                Layout.fillWidth:   true
-                label:              qsTr("Buildings Layer URL (Optional)")
-                fact:               _viewer3DStreamingBuildingsLayerUrl
-                enabled:            _viewer3DEnabled.rawValue
-                visible:            _viewer3DStreamingBuildingsLayerUrl.visible
             }
         }
 

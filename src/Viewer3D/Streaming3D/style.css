@@ -8,47 +8,51 @@ html, body, #globe {
     font-family: "Segoe UI", sans-serif;
 }
 
-.overlay-panel {
-    position: absolute;
-    left: 12px;
-    bottom: 56px;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    color: #ffffff;
-    background: rgba(17, 26, 43, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    font-size: 13px;
-    pointer-events: auto;
-}
-
 .cesium-viewer-toolbar {
     top: auto !important;
     right: auto !important;
     left: 12px !important;
-    bottom: 102px !important;
+    bottom: 56px !important;
     z-index: 30;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
 }
 
-.toggle-control {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    user-select: none;
+.controls-visible .cesium-viewer-toolbar {
+    opacity: 0.45;
+    pointer-events: auto;
 }
 
-.toggle-control input {
-    width: 16px;
-    height: 16px;
-    margin: 0;
+.cesium-viewer-toolbar:hover {
+    opacity: 1;
 }
 
-#buildings-toggle:disabled {
+.cesium-viewer-bottom {
+    left: auto !important;
+    right: 12px;
+    bottom: 12px;
+    z-index: 30;
     opacity: 0.55;
-    cursor: not-allowed;
+    pointer-events: auto;
+    transition: opacity 0.2s ease;
+}
+
+.cesium-viewer-bottom:hover {
+    opacity: 1;
+}
+
+.cesium-widget-credits {
+    background: rgba(17, 26, 43, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+.cesium-widget-credits,
+.cesium-widget-credits a,
+.cesium-widget-credits span {
+    color: #d7e1f1 !important;
 }
 
 #status {
