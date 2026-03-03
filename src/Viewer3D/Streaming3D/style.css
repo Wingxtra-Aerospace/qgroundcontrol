@@ -9,10 +9,10 @@ html, body, #globe {
 }
 
 .cesium-viewer-toolbar {
-    top: auto !important;
+    top: 12px !important;
     right: auto !important;
-    left: 12px !important;
-    bottom: 56px !important;
+    left: 86px !important;
+    bottom: auto !important;
     z-index: 30;
     opacity: 0;
     pointer-events: none;
@@ -36,6 +36,7 @@ html, body, #globe {
     opacity: 0.55;
     pointer-events: auto;
     transition: opacity 0.2s ease;
+    display: none !important;
 }
 
 .cesium-viewer-bottom:hover {
@@ -47,6 +48,7 @@ html, body, #globe {
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 4px;
     padding: 2px 6px;
+    display: none !important;
 }
 
 .cesium-widget-credits,
