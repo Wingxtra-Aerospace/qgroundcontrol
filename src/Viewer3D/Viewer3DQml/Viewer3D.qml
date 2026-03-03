@@ -23,6 +23,8 @@ Item {
 
     // FlyView expects these to exist and behave consistently
     property bool isOpen: false
+    property Item pipView: null
+    property Item pipState: _pipState
 
     // Existing setting: Fly View -> 3D View enabled
     property bool _viewer3DEnabled: QGroundControl.settingsManager.viewer3DSettings.enabled.rawValue
@@ -33,6 +35,15 @@ Item {
 
     // Error shown over the 3D area if streaming fails to load
     property string _streamingLoadError: ""
+    property bool _streamingCloseSyncPending: false
+    property bool _streamingNeedsMapSyncOnOpen: true
+    property var _streamingLastClosedMapState: null
+
+    PipState {
+        id: _pipState
+        pipView: viewer3DBody.pipView
+        isDark: true
+    }
 
     function _setLegacyActive(active) {
         // Legacy OSM viewer path
@@ -51,17 +62,66 @@ Item {
 
     function _sync2DMapToStreaming3D() {
         if (_streaming3DEnabled !== true) {
-            return
+            return false
         }
 
         if (streaming3DLoader.status === Loader.Ready &&
                 streaming3DLoader.item &&
                 typeof streaming3DLoader.item.syncFrom2DMapTo3D === "function") {
             streaming3DLoader.item.syncFrom2DMapTo3D()
+            return true
+        }
+
+        return false
+    }
+
+    function _captureCurrent2DMapState() {
+        const mapCoordinate = QGroundControl.flightMapPosition
+        if (!mapCoordinate || !mapCoordinate.isValid) {
+            return null
+        }
+
+        return {
+            latitude: Number(mapCoordinate.latitude),
+            longitude: Number(mapCoordinate.longitude),
+            zoom: Number(QGroundControl.flightMapZoom)
         }
     }
 
-    function _finalizeClose(forceUnloadStreaming) {
+    function _isSameMapState(lhs, rhs) {
+        if (!lhs || !rhs) {
+            return false
+        }
+
+        return Math.abs(Number(lhs.latitude) - Number(rhs.latitude)) < 1e-7 &&
+            Math.abs(Number(lhs.longitude) - Number(rhs.longitude)) < 1e-7 &&
+            Math.abs(Number(lhs.zoom) - Number(rhs.zoom)) < 1e-4
+    }
+
+    function _markStreaming2DMapDirty() {
+        if (_streaming3DEnabled !== true || isOpen) {
+            return
+        }
+
+        const currentMapState = _captureCurrent2DMapState()
+        if (!currentMapState) {
+            _streamingLastClosedMapState = null
+            _streamingNeedsMapSyncOnOpen = true
+            return
+        }
+
+        // Ignore signal echoes from close() sync write-back if state is unchanged.
+        if (_isSameMapState(_streamingLastClosedMapState, currentMapState)) {
+            return
+        }
+
+        _streamingLastClosedMapState = null
+        _streamingNeedsMapSyncOnOpen = true
+    }
+
+    function _finalizeClose(forceUnloadStreaming, preservePoseFrom3D) {
+        _streamingCloseSyncPending = false
+        streamingCloseSyncSafetyTimer.stop()
         isOpen = false
         _setLegacyActive(false)
 
@@ -69,6 +129,14 @@ Item {
         // Unload only when explicitly requested (for example, disabling 3D).
         if (forceUnloadStreaming === true || _streaming3DEnabled !== true) {
             _setStreamingActive(false)
+        }
+
+        if (forceUnloadStreaming === true || _streaming3DEnabled !== true || preservePoseFrom3D !== true) {
+            _streamingNeedsMapSyncOnOpen = true
+            _streamingLastClosedMapState = null
+        } else {
+            _streamingNeedsMapSyncOnOpen = false
+            _streamingLastClosedMapState = _captureCurrent2DMapState()
         }
 
         _streamingLoadError = ""
@@ -88,6 +156,14 @@ Item {
         if (_streaming3DEnabled === true) {
             _setLegacyActive(false)
             _setStreamingActive(true)
+            if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
+                _streamingNeedsMapSyncOnOpen = false
+            }
+            if (streaming3DLoader.status === Loader.Ready &&
+                    streaming3DLoader.item &&
+                    typeof streaming3DLoader.item.activate === "function") {
+                streaming3DLoader.item.activate()
+            }
         } else {
             _setStreamingActive(false)
             _setLegacyActive(true)
@@ -99,13 +175,29 @@ Item {
                 streaming3DLoader.status === Loader.Ready &&
                 streaming3DLoader.item &&
                 typeof streaming3DLoader.item.syncFrom3DTo2DMap === "function") {
-            streaming3DLoader.item.syncFrom3DTo2DMap(function() {
-                _finalizeClose()
+            _streamingCloseSyncPending = true
+            streamingCloseSyncSafetyTimer.restart()
+            streaming3DLoader.item.syncFrom3DTo2DMap(function(synced) {
+                if (!_streamingCloseSyncPending) {
+                    return
+                }
+                _finalizeClose(false, synced === true)
             })
             return
         }
 
-        _finalizeClose()
+        _finalizeClose(false, false)
+    }
+
+    Timer {
+        id: streamingCloseSyncSafetyTimer
+        interval: 900
+        repeat: false
+        onTriggered: {
+            if (viewer3DBody._streamingCloseSyncPending) {
+                viewer3DBody._finalizeClose(false, false)
+            }
+        }
     }
 
     visible: isOpen
@@ -114,7 +206,7 @@ Item {
     // If user disables 3D in Settings while open, close everything cleanly
     on_Viewer3DEnabledChanged: {
         if (_viewer3DEnabled === false) {
-            _finalizeClose(true)
+            _finalizeClose(true, false)
         }
     }
 
@@ -129,6 +221,9 @@ Item {
         if (_streaming3DEnabled === true) {
             _setLegacyActive(false)
             _setStreamingActive(true)
+            if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
+                _streamingNeedsMapSyncOnOpen = false
+            }
         } else {
             _setStreamingActive(false)
             _setLegacyActive(true)
@@ -198,8 +293,23 @@ Item {
             } else if (status === Loader.Ready) {
                 console.log("[Streaming3D] Loader.Ready")
                 _streamingLoadError = ""
-                _sync2DMapToStreaming3D()
+                if (isOpen && _streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
+                    _streamingNeedsMapSyncOnOpen = false
+                }
             }
+        }
+    }
+
+    Connections {
+        target: QGroundControl
+        enabled: _streaming3DEnabled === true
+
+        function onFlightMapPositionChanged() {
+            viewer3DBody._markStreaming2DMapDirty()
+        }
+
+        function onFlightMapZoomChanged() {
+            viewer3DBody._markStreaming2DMapDirty()
         }
     }
 

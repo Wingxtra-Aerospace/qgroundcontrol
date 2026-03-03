@@ -84,6 +84,19 @@ Item {
         _pushMapViewToPage();
     }
 
+    function activate() {
+        if (!webView) {
+            return;
+        }
+
+        webView.forceActiveFocus();
+        webView.runJavaScript(
+            "if (typeof window.__qgcOnViewerActivated === 'function') {" +
+            "window.__qgcOnViewerActivated();" +
+            "}"
+        );
+    }
+
     function syncFrom3DTo2DMap(onDone) {
         if (!webView || webView.loading) {
             if (onDone) {
@@ -93,9 +106,13 @@ Item {
         }
 
         webView.runJavaScript(
-            "(typeof window.__qgcConsumeMapViewStateIfInteracted === 'function') ? " +
-            "window.__qgcConsumeMapViewStateIfInteracted() : " +
-            "((typeof window.__qgcGetMapViewState === 'function') ? window.__qgcGetMapViewState() : null);",
+            "(function() {" +
+            "var interacted = (typeof window.__qgcConsumeMapViewStateIfInteracted === 'function') ? window.__qgcConsumeMapViewStateIfInteracted() : null;" +
+            "if (interacted) { return interacted; }" +
+            "if (typeof window.__qgcGetStableMapViewState === 'function') { return window.__qgcGetStableMapViewState(); }" +
+            "if (typeof window.__qgcGetMapViewState === 'function') { return window.__qgcGetMapViewState(); }" +
+            "return null;" +
+            "})();",
             function(result) {
                 let synced = false;
 
@@ -127,6 +144,7 @@ Item {
         settings.localContentCanAccessRemoteUrls: true
         settings.localContentCanAccessFileUrls: true
         settings.webGLEnabled: true
+        focus: root.visible
 
         onLoadingChanged: function(loadRequest) {
             if (loadRequest.status === WebEngineView.LoadStartedStatus) {
@@ -136,6 +154,7 @@ Item {
                 root._isLoading = false;
                 root._pushStreamingConfigToPage();
                 root._pushMapViewToPage();
+                root.activate();
             } else if (loadRequest.status === WebEngineView.LoadFailedStatus) {
                 root._isLoading = false;
                 root._errorText = qsTr("Could not load streamed 3D map content. Check internet connectivity and try again.");
@@ -145,6 +164,12 @@ Item {
         onRenderProcessTerminated: function(terminationStatus, exitCode) {
             root._isLoading = false;
             root._errorText = qsTr("3D web rendering could not initialize. Please restart QGroundControl.");
+        }
+    }
+
+    onVisibleChanged: {
+        if (visible) {
+            activate();
         }
     }
 
@@ -219,16 +244,4 @@ Item {
         }
     }
 
-    Connections {
-        target: QGroundControl
-        ignoreUnknownSignals: true
-
-        function onFlightMapPositionChanged() {
-            root._pushMapViewToPage();
-        }
-
-        function onFlightMapZoomChanged() {
-            root._pushMapViewToPage();
-        }
-    }
 }

@@ -21,7 +21,7 @@
     const MIN_SYNC_PITCH_ABS_RAD = Cesium.Math.toRadians(1.0);
     const RELIABLE_CENTER_PITCH_RAD = Cesium.Math.toRadians(-55.0);
     const MIN_DELIBERATE_CENTER_MOVE_KM = 0.02;
-    const MAX_UNRELIABLE_CENTER_MOVE_KM = 400.0;
+    const MAX_UNRELIABLE_CENTER_MOVE_KM = 3000.0;
     const CONTROLS_AUTO_HIDE_DELAY_MS = 1800;
 
     let controlsHideTimer = null;
@@ -158,6 +158,13 @@
         bumpControlsVisibility();
     }
 
+    function onViewerActivated() {
+        bumpControlsVisibility();
+        if (viewer && viewer.scene) {
+            viewer.scene.requestRender();
+        }
+    }
+
     function normalizeLongitude(longitude) {
         if (!Number.isFinite(longitude)) {
             return 0;
@@ -252,18 +259,24 @@
         const scene = viewer.scene;
         const canvas = scene.canvas;
         if (canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0) {
-            const centerPixel = new Cesium.Cartesian2(canvas.clientWidth / 2.0, canvas.clientHeight / 2.0);
-            const ray = scene.camera.getPickRay(centerPixel);
-            if (ray) {
-                const hit = scene.globe.pick(ray, scene);
-                if (hit) {
-                    return Cesium.Cartographic.fromCartesian(hit);
+            // In horizon-tilted views, the exact viewport center can point above the globe.
+            // Sample progressively lower vertical anchors to keep center sync stable.
+            const sampleYFactors = [0.50, 0.62, 0.74, 0.84];
+            const sampleX = canvas.clientWidth / 2.0;
+            for (let i = 0; i < sampleYFactors.length; i++) {
+                const samplePixel = new Cesium.Cartesian2(sampleX, canvas.clientHeight * sampleYFactors[i]);
+                const ray = scene.camera.getPickRay(samplePixel);
+                if (ray) {
+                    const hit = scene.globe.pick(ray, scene);
+                    if (hit) {
+                        return Cesium.Cartographic.fromCartesian(hit);
+                    }
                 }
-            }
 
-            const ellipsoidHit = scene.camera.pickEllipsoid(centerPixel, scene.globe.ellipsoid);
-            if (ellipsoidHit) {
-                return Cesium.Cartographic.fromCartesian(ellipsoidHit);
+                const ellipsoidHit = scene.camera.pickEllipsoid(samplePixel, scene.globe.ellipsoid);
+                if (ellipsoidHit) {
+                    return Cesium.Cartographic.fromCartesian(ellipsoidHit);
+                }
             }
         }
 
@@ -436,6 +449,10 @@
         return getMapViewState(false);
     };
 
+    window.__qgcGetStableMapViewState = function () {
+        return getMapViewState(false);
+    };
+
     window.__qgcConsumeMapViewStateIfInteracted = function () {
         if (!hasUserInteractedSinceExternalSync) {
             return null;
@@ -560,6 +577,10 @@
         applyStreamingConfig(config);
     };
 
+    window.__qgcOnViewerActivated = function () {
+        onViewerActivated();
+    };
+
     async function createViewer() {
         if (!window.Cesium) {
             setError("Could not load CesiumJS from the internet source.");
@@ -616,6 +637,14 @@
 
     window.addEventListener("error", function () {
         setError("An unexpected error occurred while running streamed 3D view.");
+    });
+    window.addEventListener("focus", function () {
+        onViewerActivated();
+    });
+    document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) {
+            onViewerActivated();
+        }
     });
 
     createViewer();

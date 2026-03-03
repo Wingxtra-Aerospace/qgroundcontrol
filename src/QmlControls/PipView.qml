@@ -43,6 +43,7 @@ Item {
         _componentComplete = true
     }
 
+    onItem1Changed: _initForItems()
     onItem2Changed: _initForItems()
 
     function showWindow() {

@@ -100,6 +100,7 @@ Item {
             toolInsets:             customOverlay.totalToolInsets
             mapName:                "FlightDisplayView"
             enabled:                !viewer3DWindow.isOpen
+            visible:                !viewer3DWindow.isOpen
         }
 
         FlyViewVideo {
@@ -113,10 +114,12 @@ Item {
             anchors.bottom:         parent.bottom
             anchors.margins:        _toolsMargin
             item1IsFullSettingsKey: "MainFlyWindowIsMap"
-            item1:                  mapControl
+            item1:                  viewer3DWindow.isOpen ? viewer3DWindow : mapControl
             item2:                  QGroundControl.videoManager.hasVideo ? videoControl : null
             show:                   QGroundControl.videoManager.hasVideo && !QGroundControl.videoManager.fullScreen &&
-                                        (videoControl.pipState.state === videoControl.pipState.pipState || mapControl.pipState.state === mapControl.pipState.pipState)
+                                        (videoControl.pipState.state === videoControl.pipState.pipState ||
+                                         mapControl.pipState.state === mapControl.pipState.pipState ||
+                                         viewer3DWindow.pipState.state === viewer3DWindow.pipState.pipState)
             z:                      QGroundControl.zOrderWidgets
 
             property real leftEdgeBottomInset: visible ? width + anchors.margins : 0
@@ -177,6 +180,8 @@ Item {
         Viewer3D{
             id:                     viewer3DWindow
             anchors.fill:           parent
+            z:                      _fullItemZorder + 1
+            pipView:                _pipView
         }
     }
 }
