@@ -4,13 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QGC Streaming 3D</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.126/Build/Cesium/Widgets/widgets.css">
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.19.0/mapbox-gl.css">
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
     <div id="globe"></div>
+    <button id="home-button" title="Reset view" aria-label="Reset view">Home</button>
     <div id="status" class="status hidden" role="status" aria-live="polite"></div>
-    <script src="https://cdn.jsdelivr.net/npm/cesium@1.126/Build/Cesium/Cesium.js"></script>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.19.0/mapbox-gl.js"></script>
     <script src="./app.js"></script>
 </body>
 </html>

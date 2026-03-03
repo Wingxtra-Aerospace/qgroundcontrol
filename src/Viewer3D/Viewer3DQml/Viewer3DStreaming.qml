@@ -11,8 +11,7 @@ Item {
     property string _errorText: ""
     property bool viewerOpen: false
     property var _viewer3DSettings: QGroundControl.settingsManager.viewer3DSettings
-    property var _streamingProviderFact: _viewer3DSettings ? _viewer3DSettings.streamingProvider : null
-    property var _streamingProviderTokenFact: _viewer3DSettings ? _viewer3DSettings.streamingProviderToken : null
+    property var _streamingMapTokenFact: _viewer3DSettings ? _viewer3DSettings.streamingProviderToken : null
 
     function _stringValue(value) {
         if (value === undefined || value === null) {
@@ -28,8 +27,7 @@ Item {
         }
 
         const config = {
-            provider: _stringValue(_streamingProviderFact ? _streamingProviderFact.rawValue : ""),
-            token: _stringValue(_streamingProviderTokenFact ? _streamingProviderTokenFact.rawValue : "")
+            token: _stringValue(_streamingMapTokenFact ? _streamingMapTokenFact.rawValue : "")
         };
 
         const script =
@@ -222,20 +220,7 @@ Item {
     }
 
     Connections {
-        target: root._streamingProviderFact
-        ignoreUnknownSignals: true
-
-        function onRawValueChanged() {
-            root._pushStreamingConfigToPage();
-        }
-
-        function onValueChanged() {
-            root._pushStreamingConfigToPage();
-        }
-    }
-
-    Connections {
-        target: root._streamingProviderTokenFact
+        target: root._streamingMapTokenFact
         ignoreUnknownSignals: true
 
         function onRawValueChanged() {

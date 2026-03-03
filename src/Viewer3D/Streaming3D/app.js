@@ -1,90 +1,132 @@
 (function () {
     const statusElement = document.getElementById("status");
+    const homeButton = document.getElementById("home-button");
 
-    let viewer = null;
-    let interactionHandler = null;
+    function safeStringify(value) {
+        const seen = new WeakSet();
+        return JSON.stringify(value, function (key, nestedValue) {
+            if (nestedValue instanceof Error) {
+                return {
+                    name: nestedValue.name,
+                    message: nestedValue.message,
+                    stack: nestedValue.stack
+                };
+            }
+            if (nestedValue && typeof nestedValue === "object") {
+                if (seen.has(nestedValue)) {
+                    return "[Circular]";
+                }
+                seen.add(nestedValue);
+            }
+            return nestedValue;
+        });
+    }
+
+    function formatConsoleArg(arg) {
+        if (arg instanceof Error) {
+            return arg.stack || arg.message || String(arg);
+        }
+        if (arg && typeof arg === "object") {
+            try {
+                const serialized = safeStringify(arg);
+                if (serialized && serialized !== "{}") {
+                    return serialized;
+                }
+            } catch (jsonError) {
+                // Fall through.
+            }
+            return Object.prototype.toString.call(arg);
+        }
+        return String(arg);
+    }
+
+    const originalConsoleError = console.error.bind(console);
+    const originalConsoleWarn = console.warn.bind(console);
+    console.error = function (...args) {
+        originalConsoleError(args.map(formatConsoleArg).join(" | "));
+    };
+    console.warn = function (...args) {
+        originalConsoleWarn(args.map(formatConsoleArg).join(" | "));
+    };
+
+    let map = null;
+    let mapLoaded = false;
+    let mapInitializing = false;
     let streamingConfig = {
-        provider: "Cesium",
         token: ""
     };
     let activeStatusType = "";
     let pendingMapViewState = null;
+    let defaultMapViewState = {
+        latitude: 0.0,
+        longitude: 0.0,
+        zoom: 3.0
+    };
     let hasUserInteractedSinceExternalSync = false;
-    let hasPotentialCenterChangeSinceExternalSync = false;
-    let lastSyncedMapCenter = null;
+    let isApplyingExternalMapView = false;
 
     const MIN_MAP_ZOOM = 2.0;
     const MAX_MAP_ZOOM = 20.0;
-    const EARTH_METERS_PER_PIXEL_AT_Z0 = 156543.03392804097;
-    const ZOOM_SYNC_CALIBRATION = 0.35;
-    const DEFAULT_SYNC_PITCH_RAD = Cesium.Math.toRadians(-65.0);
-    const MIN_SYNC_PITCH_ABS_RAD = Cesium.Math.toRadians(1.0);
-    const RELIABLE_CENTER_PITCH_RAD = Cesium.Math.toRadians(-55.0);
-    const MIN_DELIBERATE_CENTER_MOVE_KM = 0.02;
-    const MAX_UNRELIABLE_CENTER_MOVE_KM = 3000.0;
-    const CONTROLS_AUTO_HIDE_DELAY_MS = 1800;
-
-    let controlsHideTimer = null;
+    const DEFAULT_PITCH_DEGREES = 65.0;
+    const DEFAULT_BEARING_DEGREES = 0.0;
+    const DEFAULT_STYLE_URL = "mapbox://styles/mapbox/standard-satellite";
 
     function clampValue(value, minValue, maxValue) {
         return Math.max(minValue, Math.min(maxValue, value));
     }
 
-    function normalizeLongitudeDelta(longitudeDelta) {
-        if (!Number.isFinite(longitudeDelta)) {
-            return 0;
+    function normalizeLongitude(longitude) {
+        if (!Number.isFinite(longitude)) {
+            return 0.0;
         }
-
-        return ((longitudeDelta + 540) % 360) - 180;
+        return (((longitude + 180.0) % 360.0) + 360.0) % 360.0 - 180.0;
     }
 
-    function distanceKmBetweenCoordinates(first, second) {
-        if (!first || !second) {
-            return Number.POSITIVE_INFINITY;
+    function clampLatitude(latitude) {
+        if (!Number.isFinite(latitude)) {
+            return 0.0;
+        }
+        return clampValue(latitude, -85.0, 85.0);
+    }
+
+    function clampZoomLevel(zoom) {
+        if (!Number.isFinite(zoom)) {
+            return MIN_MAP_ZOOM;
+        }
+        return clampValue(zoom, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
+    }
+
+    function normalizeMapViewState(mapViewState) {
+        if (!mapViewState) {
+            return null;
         }
 
-        const firstLat = Number(first.latitude);
-        const firstLon = Number(first.longitude);
-        const secondLat = Number(second.latitude);
-        const secondLon = Number(second.longitude);
-        if (!Number.isFinite(firstLat) || !Number.isFinite(firstLon) ||
-                !Number.isFinite(secondLat) || !Number.isFinite(secondLon)) {
-            return Number.POSITIVE_INFINITY;
+        const latitude = Number(mapViewState.latitude);
+        const longitude = Number(mapViewState.longitude);
+        const zoom = Number(mapViewState.zoom);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(zoom)) {
+            return null;
         }
 
-        const earthRadiusKm = 6371.0088;
-        const deltaLatRad = Cesium.Math.toRadians(secondLat - firstLat);
-        const deltaLonRad = Cesium.Math.toRadians(normalizeLongitudeDelta(secondLon - firstLon));
-        const lat1Rad = Cesium.Math.toRadians(firstLat);
-        const lat2Rad = Cesium.Math.toRadians(secondLat);
-        const halfChord =
-            Math.sin(deltaLatRad / 2.0) * Math.sin(deltaLatRad / 2.0) +
-            Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-            Math.sin(deltaLonRad / 2.0) * Math.sin(deltaLonRad / 2.0);
-        const centralAngle = 2.0 * Math.atan2(Math.sqrt(halfChord), Math.sqrt(Math.max(1.0 - halfChord, 0.0)));
-
-        return earthRadiusKm * centralAngle;
+        return {
+            latitude: clampLatitude(latitude),
+            longitude: normalizeLongitude(longitude),
+            zoom: clampZoomLevel(zoom)
+        };
     }
 
     function normalizeConfig(config) {
-        const providerValue = config && config.provider !== undefined && config.provider !== null
-            ? String(config.provider).trim()
-            : "";
         const tokenValue = config && config.token !== undefined && config.token !== null
             ? String(config.token).trim()
             : "";
 
         return {
-            provider: providerValue.length > 0 ? providerValue : "Cesium",
             token: tokenValue
         };
     }
 
     function applyStreamingConfig(config) {
         streamingConfig = normalizeConfig(config);
-        if (window.Cesium) {
-            Cesium.Ion.defaultAccessToken = streamingConfig.token;
-        }
     }
 
     function setStatus(message, statusType) {
@@ -125,311 +167,219 @@
         }
     }
 
-    function setControlsVisible(visible) {
-        if (!document || !document.body) {
+    function validateToken(showMessage) {
+        if (!streamingConfig.token || streamingConfig.token.length === 0) {
+            if (showMessage === true) {
+                setError("Mapbox token is required for streamed 3D mode.");
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    function installMapboxTerrainAndBuildings() {
+        if (!map || !mapLoaded) {
             return;
         }
 
-        document.body.classList.toggle("controls-visible", Boolean(visible));
-    }
-
-    function bumpControlsVisibility() {
-        setControlsVisible(true);
-
-        if (controlsHideTimer) {
-            window.clearTimeout(controlsHideTimer);
+        if (!map.getSource("mapbox-dem")) {
+            map.addSource("mapbox-dem", {
+                type: "raster-dem",
+                url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+                tileSize: 512,
+                maxzoom: 14
+            });
         }
 
-        controlsHideTimer = window.setTimeout(function () {
-            setControlsVisible(false);
-        }, CONTROLS_AUTO_HIDE_DELAY_MS);
-    }
+        map.setTerrain({
+            source: "mapbox-dem",
+            exaggeration: 1.12
+        });
 
-    function installControlsVisibilityHandlers() {
-        const revealControls = function () {
-            bumpControlsVisibility();
-        };
+        if (typeof map.setConfigProperty === "function") {
+            try {
+                map.setConfigProperty("basemap", "show3dObjects", true);
+            } catch (configError) {
+                console.warn("basemap 3d object config skipped:", configError);
+            }
+        }
 
-        window.addEventListener("mousemove", revealControls, { passive: true });
-        window.addEventListener("wheel", revealControls, { passive: true });
-        window.addEventListener("touchstart", revealControls, { passive: true });
-        window.addEventListener("keydown", revealControls);
+        if (!map.getLayer("qgc-3d-buildings") && map.getSource("composite")) {
+            const style = map.getStyle();
+            const firstLabelLayerId = style && style.layers
+                ? style.layers.find(function (layer) { return layer.type === "symbol"; })
+                : null;
 
-        bumpControlsVisibility();
-    }
+            map.addLayer({
+                id: "qgc-3d-buildings",
+                source: "composite",
+                "source-layer": "building",
+                filter: ["==", ["get", "extrude"], "true"],
+                type: "fill-extrusion",
+                minzoom: 15,
+                paint: {
+                    "fill-extrusion-color": "#d7dbe2",
+                    "fill-extrusion-height": [
+                        "interpolate", ["linear"], ["zoom"],
+                        15, 0,
+                        16, ["coalesce", ["get", "height"], 10]
+                    ],
+                    "fill-extrusion-base": [
+                        "interpolate", ["linear"], ["zoom"],
+                        15, 0,
+                        16, ["coalesce", ["get", "min_height"], 0]
+                    ],
+                    "fill-extrusion-opacity": 0.72
+                }
+            }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
+        }
 
-    function onViewerActivated() {
-        bumpControlsVisibility();
-        if (viewer && viewer.scene) {
-            viewer.scene.requestRender();
+        if (typeof map.setFog === "function") {
+            try {
+                map.setFog({
+                    range: [-1.0, 2.0],
+                    color: "rgba(186, 210, 235, 0.32)",
+                    "high-color": "rgba(36, 92, 158, 0.12)",
+                    "space-color": "rgba(10, 18, 32, 1)",
+                    "horizon-blend": 0.2
+                });
+            } catch (fogError) {
+                console.warn("fog setup skipped:", fogError);
+            }
         }
     }
 
-    function normalizeLongitude(longitude) {
-        if (!Number.isFinite(longitude)) {
-            return 0;
+    function logGlRendererInfo() {
+        if (!map) {
+            return;
         }
-        return (((longitude + 180) % 360) + 360) % 360 - 180;
+
+        try {
+            const canvas = map.getCanvas();
+            if (!canvas) {
+                return;
+            }
+
+            const gl =
+                canvas.getContext("webgl2") ||
+                canvas.getContext("webgl") ||
+                canvas.getContext("experimental-webgl");
+            if (!gl) {
+                return;
+            }
+
+            let renderer = gl.getParameter(gl.RENDERER) || "unknown";
+            let vendor = gl.getParameter(gl.VENDOR) || "unknown";
+            const dbgExt = gl.getExtension("WEBGL_debug_renderer_info");
+            if (dbgExt) {
+                renderer = gl.getParameter(dbgExt.UNMASKED_RENDERER_WEBGL) || renderer;
+                vendor = gl.getParameter(dbgExt.UNMASKED_VENDOR_WEBGL) || vendor;
+            }
+
+            console.warn("[Streaming3D] WebGL renderer:", renderer, "vendor:", vendor);
+        } catch (error) {
+            console.warn("renderer diagnostics failed:", error);
+        }
     }
 
-    function clampZoomLevel(zoom) {
-        if (!Number.isFinite(zoom)) {
-            return MIN_MAP_ZOOM;
-        }
-        return clampValue(zoom, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
-    }
-
-    function clampLatitude(latitude) {
-        if (!Number.isFinite(latitude)) {
-            return 0;
-        }
-        return clampValue(latitude, -85.0, 85.0);
-    }
-
-    function normalizeMapViewState(mapViewState) {
-        if (!mapViewState) {
+    function getCurrentMapViewState() {
+        if (!map || !mapLoaded) {
             return null;
         }
 
-        const latitude = Number(mapViewState.latitude);
-        const longitude = Number(mapViewState.longitude);
-        const zoom = Number(mapViewState.zoom);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(zoom)) {
+        const center = map.getCenter();
+        const zoom = map.getZoom();
+        if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng) || !Number.isFinite(zoom)) {
             return null;
         }
 
         return {
-            latitude: clampLatitude(latitude),
-            longitude: normalizeLongitude(longitude),
+            latitude: clampLatitude(center.lat),
+            longitude: normalizeLongitude(center.lng),
             zoom: clampZoomLevel(zoom)
         };
     }
 
-    function getCanvasHeight() {
-        if (viewer && viewer.scene && viewer.scene.canvas && viewer.scene.canvas.clientHeight > 0) {
-            return viewer.scene.canvas.clientHeight;
-        }
-        return 1080;
-    }
-
-    function getCameraVerticalFov() {
-        if (!viewer || !viewer.scene || !viewer.scene.camera || !viewer.scene.camera.frustum) {
-            return Cesium.Math.toRadians(60.0);
-        }
-
-        const frustum = viewer.scene.camera.frustum;
-        if (Number.isFinite(frustum.fovy) && frustum.fovy > 0) {
-            return frustum.fovy;
-        }
-
-        return Cesium.Math.toRadians(60.0);
-    }
-
-    function zoomToCameraHeightMeters(zoom, latitude) {
-        const clampedZoom = clampZoomLevel(zoom);
-        const adjustedZoom = clampedZoom + ZOOM_SYNC_CALIBRATION;
-        const latRadians = clampLatitude(latitude) * Math.PI / 180.0;
-        const metersPerPixel = EARTH_METERS_PER_PIXEL_AT_Z0 * Math.cos(latRadians) / Math.pow(2.0, adjustedZoom);
-        const safeMetersPerPixel = Math.max(metersPerPixel, 0.01);
-        const canvasHeight = getCanvasHeight();
-        const verticalFov = getCameraVerticalFov();
-        const range = (safeMetersPerPixel * canvasHeight) / (2.0 * Math.tan(verticalFov / 2.0));
-
-        return Math.max(range, 50.0);
-    }
-
-    function cameraHeightMetersToZoom(heightMeters, latitude) {
-        const safeHeight = Math.max(Number(heightMeters) || 0.0, 50.0);
-        const latRadians = clampLatitude(latitude) * Math.PI / 180.0;
-        const canvasHeight = getCanvasHeight();
-        const verticalFov = getCameraVerticalFov();
-        const metersPerPixel = (2.0 * safeHeight * Math.tan(verticalFov / 2.0)) / Math.max(canvasHeight, 1.0);
-        const safeMetersPerPixel = Math.max(metersPerPixel, 0.0001);
-        const numerator = EARTH_METERS_PER_PIXEL_AT_Z0 * Math.cos(latRadians);
-        const zoom = Math.log2(Math.max(numerator / safeMetersPerPixel, 0.0001)) - ZOOM_SYNC_CALIBRATION;
-
-        return clampZoomLevel(zoom);
-    }
-
-    function getCameraCenterCartographic() {
-        if (!viewer || !viewer.scene || !viewer.scene.camera) {
-            return null;
-        }
-
-        const scene = viewer.scene;
-        const canvas = scene.canvas;
-        if (canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0) {
-            // In horizon-tilted views, the exact viewport center can point above the globe.
-            // Sample progressively lower vertical anchors to keep center sync stable.
-            const sampleYFactors = [0.50, 0.62, 0.74, 0.84];
-            const sampleX = canvas.clientWidth / 2.0;
-            for (let i = 0; i < sampleYFactors.length; i++) {
-                const samplePixel = new Cesium.Cartesian2(sampleX, canvas.clientHeight * sampleYFactors[i]);
-                const ray = scene.camera.getPickRay(samplePixel);
-                if (ray) {
-                    const hit = scene.globe.pick(ray, scene);
-                    if (hit) {
-                        return Cesium.Cartographic.fromCartesian(hit);
-                    }
-                }
-
-                const ellipsoidHit = scene.camera.pickEllipsoid(samplePixel, scene.globe.ellipsoid);
-                if (ellipsoidHit) {
-                    return Cesium.Cartographic.fromCartesian(ellipsoidHit);
-                }
-            }
-        }
-
-        return viewer.camera.positionCartographic;
-    }
-
-    function setMapViewState(mapViewState) {
+    function applyMapViewState(mapViewState) {
         const normalized = normalizeMapViewState(mapViewState);
         if (!normalized) {
             return false;
         }
 
-        if (!window.Cesium || !viewer || !viewer.camera) {
+        if (!map || !mapLoaded) {
             pendingMapViewState = normalized;
             return false;
         }
 
-        const heightMeters = zoomToCameraHeightMeters(normalized.zoom, normalized.latitude);
-        const heading = Number.isFinite(viewer.camera.heading) ? viewer.camera.heading : 0.0;
-        const existingPitch = Number.isFinite(viewer.camera.pitch) ? viewer.camera.pitch : DEFAULT_SYNC_PITCH_RAD;
-        const clampedPitch = clampValue(existingPitch, Cesium.Math.toRadians(-89.0), Cesium.Math.toRadians(-1.0));
-        const safePitchAbs = Math.max(Math.abs(clampedPitch), MIN_SYNC_PITCH_ABS_RAD);
-        const safePitchSine = Math.max(Math.sin(safePitchAbs), 0.0001);
-        const rangeMeters = Math.max(heightMeters / safePitchSine, 50.0);
-        const target = Cesium.Cartesian3.fromDegrees(normalized.longitude, normalized.latitude, 0.0);
+        const pitch = Number.isFinite(map.getPitch()) ? map.getPitch() : DEFAULT_PITCH_DEGREES;
+        const bearing = Number.isFinite(map.getBearing()) ? map.getBearing() : DEFAULT_BEARING_DEGREES;
 
-        viewer.camera.lookAt(target, new Cesium.HeadingPitchRange(heading, clampedPitch, rangeMeters));
-        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-        viewer.scene.requestRender();
+        isApplyingExternalMapView = true;
+        try {
+            map.jumpTo({
+                center: [normalized.longitude, normalized.latitude],
+                zoom: normalized.zoom,
+                pitch: pitch,
+                bearing: bearing
+            });
+        } finally {
+            isApplyingExternalMapView = false;
+        }
+
         pendingMapViewState = null;
         hasUserInteractedSinceExternalSync = false;
-        hasPotentialCenterChangeSinceExternalSync = false;
-        lastSyncedMapCenter = {
-            latitude: normalized.latitude,
-            longitude: normalized.longitude
-        };
-
+        map.triggerRepaint();
         return true;
     }
 
-    function getCurrentCenterCandidate() {
-        const centerCartographic = getCameraCenterCartographic();
-        if (!centerCartographic) {
-            return null;
-        }
-
-        return {
-            latitude: clampLatitude(Cesium.Math.toDegrees(centerCartographic.latitude)),
-            longitude: normalizeLongitude(Cesium.Math.toDegrees(centerCartographic.longitude))
-        };
-    }
-
-    function getReliableCenterForSync(allowUnreliableUpdate) {
-        if (!viewer || !viewer.camera) {
-            return lastSyncedMapCenter;
-        }
-
-        const centerCandidate = getCurrentCenterCandidate();
-        if (!centerCandidate) {
-            return lastSyncedMapCenter;
-        }
-
-        if (isPitchReliableForMapSync() || allowUnreliableUpdate === true) {
-            lastSyncedMapCenter = centerCandidate;
-        }
-
-        return lastSyncedMapCenter;
-    }
-
-    function isPitchReliableForMapSync() {
-        if (!viewer || !viewer.camera) {
-            return false;
-        }
-
-        const pitch = Number(viewer.camera.pitch);
-        return Number.isFinite(pitch) && (pitch <= RELIABLE_CENTER_PITCH_RAD);
-    }
-
-    function getMapViewState(allowUnreliableCenterUpdate) {
-        if (!viewer || !viewer.camera) {
-            return null;
-        }
-
-        const center = getReliableCenterForSync(allowUnreliableCenterUpdate === true);
-        if (!center) {
-            return null;
-        }
-        const cameraCartographic = viewer.camera.positionCartographic;
-        const heightMeters = cameraCartographic ? cameraCartographic.height : 1000.0;
-
-        return {
-            latitude: center.latitude,
-            longitude: center.longitude,
-            zoom: cameraHeightMetersToZoom(heightMeters, center.latitude)
-        };
+    function markUserInteraction(potentialCenterChange) {
+        hasUserInteractedSinceExternalSync = true;
     }
 
     function setupInteractionTracking() {
-        if (!viewer || !viewer.scene || !viewer.scene.canvas || !window.Cesium) {
+        if (!map) {
             return;
         }
 
-        if (interactionHandler) {
-            interactionHandler.destroy();
-            interactionHandler = null;
+        map.on("movestart", function () {
+            if (isApplyingExternalMapView) {
+                return;
+            }
+            markUserInteraction(false);
+        });
+
+        map.on("move", function () {
+            if (isApplyingExternalMapView) {
+                return;
+            }
+            markUserInteraction(true);
+        });
+
+        map.on("moveend", function () {
+            if (isApplyingExternalMapView) {
+                return;
+            }
+            markUserInteraction(true);
+        });
+    }
+
+    window.__qgcApplyStreaming3DConfig = function (config) {
+        applyStreamingConfig(config);
+        // Token may arrive after initial startup attempt. Retry map init automatically.
+        if (!map && !mapInitializing && validateToken(false)) {
+            createMap();
+        }
+    };
+
+    window.__qgcOnViewerActivated = function () {
+        if (!map) {
+            return;
         }
 
-        interactionHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-        let activePointerButton = "";
-
-        const markUserInteraction = function (potentialCenterChange) {
-            hasUserInteractedSinceExternalSync = true;
-            if (potentialCenterChange === true) {
-                hasPotentialCenterChangeSinceExternalSync = true;
-            }
-        };
-
-        interactionHandler.setInputAction(function () {
-            activePointerButton = "left";
-            markUserInteraction(false);
-        }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
-        interactionHandler.setInputAction(function () {
-            activePointerButton = "middle";
-            markUserInteraction(false);
-        }, Cesium.ScreenSpaceEventType.MIDDLE_DOWN);
-        interactionHandler.setInputAction(function () {
-            activePointerButton = "right";
-            markUserInteraction(false);
-        }, Cesium.ScreenSpaceEventType.RIGHT_DOWN);
-
-        interactionHandler.setInputAction(function () {
-            if (activePointerButton === "left" || activePointerButton === "middle") {
-                markUserInteraction(true);
-            }
-        }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
-
-        interactionHandler.setInputAction(function () {
-            activePointerButton = "";
-        }, Cesium.ScreenSpaceEventType.LEFT_UP);
-        interactionHandler.setInputAction(function () {
-            activePointerButton = "";
-        }, Cesium.ScreenSpaceEventType.MIDDLE_UP);
-        interactionHandler.setInputAction(function () {
-            activePointerButton = "";
-        }, Cesium.ScreenSpaceEventType.RIGHT_UP);
-
-        interactionHandler.setInputAction(function () {
-            markUserInteraction(false);
-        }, Cesium.ScreenSpaceEventType.WHEEL);
-        interactionHandler.setInputAction(function () {
-            markUserInteraction(false);
-        }, Cesium.ScreenSpaceEventType.PINCH_START);
-    }
+        map.resize();
+        map.triggerRepaint();
+    };
 
     window.__qgcSetMapViewState = function (mapViewState) {
         const normalized = normalizeMapViewState(mapViewState);
@@ -437,20 +387,20 @@
             return false;
         }
 
-        if (!viewer) {
-            pendingMapViewState = normalized;
+        pendingMapViewState = normalized;
+        if (!map || !mapLoaded) {
             return false;
         }
 
-        return setMapViewState(normalized);
+        return applyMapViewState(normalized);
     };
 
     window.__qgcGetMapViewState = function () {
-        return getMapViewState(false);
+        return getCurrentMapViewState();
     };
 
     window.__qgcGetStableMapViewState = function () {
-        return getMapViewState(false);
+        return getCurrentMapViewState();
     };
 
     window.__qgcConsumeMapViewStateIfInteracted = function () {
@@ -458,230 +408,118 @@
             return null;
         }
 
-        const allowUnreliableCenterUpdate = hasPotentialCenterChangeSinceExternalSync;
-        const wasPitchReliable = isPitchReliableForMapSync();
-        const previousCenter = lastSyncedMapCenter ? {
-            latitude: lastSyncedMapCenter.latitude,
-            longitude: lastSyncedMapCenter.longitude
-        } : null;
-
-        if (!wasPitchReliable && !allowUnreliableCenterUpdate) {
-            hasUserInteractedSinceExternalSync = false;
-            hasPotentialCenterChangeSinceExternalSync = false;
-            return null;
-        }
-
-        const mapViewState = getMapViewState(allowUnreliableCenterUpdate);
+        const mapViewState = getCurrentMapViewState();
         hasUserInteractedSinceExternalSync = false;
-        hasPotentialCenterChangeSinceExternalSync = false;
-
-        if (!mapViewState) {
-            return null;
-        }
-
-        if (!wasPitchReliable && allowUnreliableCenterUpdate && previousCenter) {
-            const centerDistanceKm = distanceKmBetweenCoordinates(previousCenter, mapViewState);
-            if (!Number.isFinite(centerDistanceKm) ||
-                    centerDistanceKm < MIN_DELIBERATE_CENTER_MOVE_KM ||
-                    centerDistanceKm > MAX_UNRELIABLE_CENTER_MOVE_KM) {
-                lastSyncedMapCenter = previousCenter;
-                return null;
-            }
-        }
-
         return mapViewState;
     };
 
-    function clearGlobeContainer() {
-        const globeElement = document.getElementById("globe");
-        if (globeElement) {
-            globeElement.innerHTML = "";
-        }
-    }
-
-    function buildViewerOptions(terrainProvider, compatibilityMode) {
-        const options = {
-            animation: false,
-            baseLayerPicker: false,
-            fullscreenButton: false,
-            geocoder: false,
-            homeButton: true,
-            infoBox: false,
-            navigationHelpButton: false,
-            sceneModePicker: false,
-            selectionIndicator: false,
-            timeline: false,
-            terrainProvider: terrainProvider,
-            requestRenderMode: true
-        };
-
-        if (compatibilityMode === "webgl2-compat") {
-            options.contextOptions = {
-                webgl: {
-                    antialias: false,
-                    failIfMajorPerformanceCaveat: false,
-                    powerPreference: "low-power"
-                }
-            };
-        } else if (compatibilityMode === "webgl1-compat") {
-            options.contextOptions = {
-                requestWebgl1: true,
-                webgl: {
-                    antialias: false,
-                    failIfMajorPerformanceCaveat: false,
-                    powerPreference: "low-power"
-                }
-            };
-        }
-
-        return options;
-    }
-
-    function isWebGlInitializationError(error) {
-        const message = String(error && error.message ? error.message : error || "");
-        return /webgl|context|initialization failed|Error constructing CesiumWidget/i.test(message);
-    }
-
-    function createViewerInstance(terrainProvider, compatibilityMode) {
-        clearGlobeContainer();
-        return new Cesium.Viewer("globe", buildViewerOptions(terrainProvider, compatibilityMode));
-    }
-
-    function disableSkyVisualEffects() {
-        if (!viewer || !viewer.scene) {
+    function setupHomeButton() {
+        if (!homeButton) {
             return;
         }
 
-        const scene = viewer.scene;
-        if (scene.skyBox) {
-            scene.skyBox.show = false;
-        }
-        if (scene.skyAtmosphere) {
-            scene.skyAtmosphere.show = false;
-        }
-        if (scene.sun) {
-            scene.sun.show = false;
-        }
-        if (scene.moon) {
-            scene.moon.show = false;
-        }
-        if (scene.fog) {
-            scene.fog.enabled = false;
-        }
-        if (scene.globe) {
-            scene.globe.showGroundAtmosphere = false;
-        }
-        if (window.Cesium && Cesium.Color) {
-            scene.backgroundColor = Cesium.Color.BLACK;
-        }
-    }
-
-    async function installBaseImageryLayer() {
-        if (!viewer) {
-            return;
-        }
-
-        viewer.imageryLayers.removeAll();
-
-        try {
-            // NaturalEarthII is global coverage (including poles), used as underlay.
-            const globalCoverageProvider = await Cesium.TileMapServiceImageryProvider.fromUrl(
-                Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
-            );
-            viewer.imageryLayers.addImageryProvider(globalCoverageProvider);
-        } catch (globalCoverageError) {
-            console.warn("Global fallback imagery error:", globalCoverageError);
-        }
-
-        const arcGisImageryProvider = new Cesium.UrlTemplateImageryProvider({
-            url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            credit: "Esri"
+        homeButton.addEventListener("click", function () {
+            const targetState = normalizeMapViewState(window.__qgcMapViewState || pendingMapViewState || defaultMapViewState);
+            if (targetState) {
+                applyMapViewState(targetState);
+            }
         });
-
-        viewer.imageryLayers.addImageryProvider(arcGisImageryProvider);
-
-        viewer.scene.requestRender();
     }
 
-    window.__qgcApplyStreaming3DConfig = function (config) {
-        applyStreamingConfig(config);
-    };
+    function createMap() {
+        if (map || mapInitializing) {
+            return;
+        }
 
-    window.__qgcOnViewerActivated = function () {
-        onViewerActivated();
-    };
-
-    async function createViewer() {
-        if (!window.Cesium) {
-            setError("Could not load CesiumJS from the internet source.");
+        if (!window.mapboxgl) {
+            setError("Could not load Mapbox GL JS from the internet source.");
             return;
         }
 
         try {
+            mapInitializing = true;
             applyStreamingConfig(window.__qgcStreaming3DConfig || {});
+            if (!validateToken(true)) {
+                mapInitializing = false;
+                return;
+            }
 
-            const terrainProvider = await Cesium.ArcGISTiledElevationTerrainProvider.fromUrl(
-                "https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer"
-            );
+            mapboxgl.accessToken = streamingConfig.token;
 
-            try {
-                viewer = createViewerInstance(terrainProvider, false);
-            } catch (primaryCreateError) {
-                if (!isWebGlInitializationError(primaryCreateError)) {
-                    throw primaryCreateError;
+            const initialMapViewState =
+                normalizeMapViewState(window.__qgcMapViewState || pendingMapViewState) ||
+                defaultMapViewState;
+            defaultMapViewState = initialMapViewState;
+
+            map = new mapboxgl.Map({
+                container: "globe",
+                style: DEFAULT_STYLE_URL,
+                center: [initialMapViewState.longitude, initialMapViewState.latitude],
+                zoom: initialMapViewState.zoom,
+                pitch: DEFAULT_PITCH_DEGREES,
+                bearing: DEFAULT_BEARING_DEGREES,
+                minZoom: MIN_MAP_ZOOM,
+                maxZoom: MAX_MAP_ZOOM,
+                maxPitch: 85,
+                antialias: true,
+                attributionControl: false,
+                hash: false
+            });
+
+            map.on("load", function () {
+                mapLoaded = true;
+                mapInitializing = false;
+                clearWarning();
+                setStatus("", "");
+                installMapboxTerrainAndBuildings();
+                setupInteractionTracking();
+                if (pendingMapViewState) {
+                    applyMapViewState(pendingMapViewState);
                 }
+                logGlRendererInfo();
+                window.__qgcOnViewerActivated();
+            });
 
-                console.warn(primaryCreateError);
-                setWarning("Primary WebGL path failed. Retrying in compatibility mode.");
-                try {
-                    viewer = createViewerInstance(terrainProvider, "webgl2-compat");
-                } catch (secondaryCreateError) {
-                    if (!isWebGlInitializationError(secondaryCreateError)) {
-                        throw secondaryCreateError;
-                    }
-
-                    console.warn(secondaryCreateError);
-                    setWarning("WebGL2 compatibility failed. Retrying with WebGL1 fallback.");
-                    viewer = createViewerInstance(terrainProvider, "webgl1-compat");
+            map.on("style.load", function () {
+                if (mapLoaded) {
+                    installMapboxTerrainAndBuildings();
                 }
-            }
+            });
 
-            disableSkyVisualEffects();
-            viewer.terrainProvider = terrainProvider;
-            try {
-                await installBaseImageryLayer();
-            } catch (imageryError) {
-                console.warn("Base imagery initialization error:", imageryError);
-                setWarning("Base imagery could not fully initialize. Rendering may use fallback textures.");
-            }
-            setupInteractionTracking();
-            viewer.scene.globe.depthTestAgainstTerrain = true;
-            const initialMapViewState = normalizeMapViewState(window.__qgcMapViewState || pendingMapViewState);
-            if (!setMapViewState(initialMapViewState)) {
-                viewer.camera.flyHome(0);
-                viewer.scene.requestRender();
-            }
-            viewer.scene.requestRender();
-
-            window.__qgcCesiumViewer = viewer;
-            installControlsVisibilityHandlers();
+            map.on("error", function (event) {
+                const errorDetail = event && event.error ? event.error : event;
+                console.warn("map error:", errorDetail);
+                const message = String(errorDetail && errorDetail.message ? errorDetail.message : errorDetail || "");
+                const status = Number(errorDetail && (errorDetail.status || errorDetail.statusCode));
+                if (status === 401 || /access token|unauthorized|forbidden/i.test(message)) {
+                    setError("Mapbox access token is invalid or unauthorized.");
+                }
+            });
         } catch (error) {
-            console.error(error);
-            setError("Unable to initialize streamed Cesium globe. WebGL/GPU initialization failed.");
+            mapInitializing = false;
+            const message = error && (error.stack || error.message) ? (error.stack || error.message) : String(error);
+            console.warn("createMap failed:", message);
+            setError("Unable to initialize streamed 3D map view.");
         }
     }
 
-    window.addEventListener("error", function () {
+    window.addEventListener("error", function (event) {
+        const errorSummary = {
+            message: event && event.message ? event.message : "",
+            filename: event && event.filename ? event.filename : "",
+            lineno: event && Number.isFinite(event.lineno) ? event.lineno : 0,
+            colno: event && Number.isFinite(event.colno) ? event.colno : 0,
+            error: event && event.error ? event.error : null
+        };
+        console.warn("window error:", errorSummary);
         setError("An unexpected error occurred while running streamed 3D view.");
     });
-    window.addEventListener("focus", function () {
-        onViewerActivated();
-    });
-    document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) {
-            onViewerActivated();
-        }
+
+    window.addEventListener("unhandledrejection", function (event) {
+        const reason = event && event.reason ? event.reason : "unknown";
+        console.warn("unhandled rejection:", reason);
     });
 
-    createViewer();
+    setupHomeButton();
+    createMap();
 })();

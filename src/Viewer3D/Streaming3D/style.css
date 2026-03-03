@@ -8,53 +8,31 @@ html, body, #globe {
     font-family: "Segoe UI", sans-serif;
 }
 
-.cesium-viewer-toolbar {
-    top: 12px !important;
-    right: auto !important;
-    left: 86px !important;
-    bottom: auto !important;
+#home-button {
+    position: absolute;
+    top: 12px;
+    left: 86px;
     z-index: 30;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}
-
-.controls-visible .cesium-viewer-toolbar {
+    height: 30px;
+    min-width: 56px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 5px;
+    background: rgba(18, 28, 45, 0.78);
+    color: #d7e1f1;
+    cursor: pointer;
     opacity: 0.45;
-    pointer-events: auto;
-}
-
-.cesium-viewer-toolbar:hover {
-    opacity: 1;
-}
-
-.cesium-viewer-bottom {
-    left: auto !important;
-    right: 12px;
-    bottom: 12px;
-    z-index: 30;
-    opacity: 0.55;
-    pointer-events: auto;
     transition: opacity 0.2s ease;
-    display: none !important;
 }
 
-.cesium-viewer-bottom:hover {
+#home-button:hover {
     opacity: 1;
 }
 
-.cesium-widget-credits {
-    background: rgba(17, 26, 43, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 4px;
-    padding: 2px 6px;
+.mapboxgl-ctrl-bottom-right,
+.mapboxgl-ctrl-bottom-left,
+.mapboxgl-ctrl-logo,
+.mapboxgl-ctrl-attrib {
     display: none !important;
-}
-
-.cesium-widget-credits,
-.cesium-widget-credits a,
-.cesium-widget-credits span {
-    color: #d7e1f1 !important;
 }
 
 #status {

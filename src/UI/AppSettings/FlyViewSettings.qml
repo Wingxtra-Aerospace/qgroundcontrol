@@ -40,10 +40,7 @@ SettingsPage {
     property var    _viewer3DSettings:                      _settingsManager.viewer3DSettings
     property bool   _streaming3DEnabled:                    QGroundControl.streaming3DEnabled
     property Fact   _viewer3DEnabled:                       _viewer3DSettings.enabled
-    property Fact   _viewer3DOsmFilePath:                   _viewer3DSettings.osmFilePath
-    property Fact   _viewer3DStreamingProviderToken:        _viewer3DSettings.streamingProviderToken
-    property Fact   _viewer3DBuildingLevelHeight:           _viewer3DSettings.buildingLevelHeight
-    property Fact   _viewer3DAltitudeBias:                  _viewer3DSettings.altitudeBias
+    property Fact   _viewer3DStreamingMapToken:             _viewer3DSettings.streamingProviderToken
 
     QGCFileDialogController { id: fileController }
 
@@ -253,74 +250,6 @@ SettingsPage {
             visible:            _viewer3DEnabled.visible
         }
 
-        ColumnLayout{
-            Layout.fillWidth:   true
-            spacing:            ScreenTools.defaultFontPixelWidth
-            enabled:            _viewer3DEnabled.rawValue && !_streaming3DEnabled
-            visible:            !_streaming3DEnabled && _viewer3DOsmFilePath.visible
-
-            RowLayout{
-                Layout.fillWidth:   true
-                spacing:            ScreenTools.defaultFontPixelWidth
-
-                QGCLabel {
-                    wrapMode:   Text.WordWrap
-                    visible:    true
-                    text:       qsTr("3D Map File:")
-                }
-
-                QGCTextField {
-                    id:                 osmFileTextField
-                    height:             ScreenTools.defaultFontPixelWidth * 4.5
-                    unitsLabel:         ""
-                    showUnits:          false
-                    visible:            true
-                    Layout.fillWidth:   true
-                    readOnly:           true
-                    text:               _viewer3DOsmFilePath.rawValue
-                }
-            }
-
-            RowLayout{
-                Layout.alignment:   Qt.AlignRight
-                spacing:            ScreenTools.defaultFontPixelWidth
-
-                QGCButton {
-                    text: qsTr("Clear")
-
-                    onClicked: {
-                        osmFileTextField.text = "Please select an OSM file"
-                        _viewer3DOsmFilePath.value = osmFileTextField.text
-                    }
-                }
-
-                QGCButton {
-                    text: qsTr("Select File")
-
-                    onClicked: {
-                        var filename = _viewer3DOsmFilePath.rawValue;
-                        const found = filename.match(/(.*)[\/\\]/);
-                        if(found){
-                            filename = found[1]||''; // extracting the directory from the file path
-                            fileDialog.folder = (filename[0] === "/")?(filename.slice(1)):(filename);
-                        }
-                        fileDialog.openForLoad()
-                    }
-
-                    QGCFileDialog {
-                        id:             fileDialog
-                        nameFilters:    [qsTr("OpenStreetMap files (*.osm)")]
-                        title:          qsTr("Select map file")
-
-                        onAcceptedForLoad: (file) => {
-                                               osmFileTextField.text = file
-                                               _viewer3DOsmFilePath.value = osmFileTextField.text
-                        }
-                    }
-                }
-            }
-        }
-
         ColumnLayout {
             Layout.fillWidth:   true
             spacing:            ScreenTools.defaultFontPixelWidth
@@ -335,27 +264,11 @@ SettingsPage {
 
             LabelledFactTextField {
                 Layout.fillWidth:   true
-                label:              qsTr("Streaming Provider Token (Optional)")
-                fact:               _viewer3DStreamingProviderToken
+                label:              qsTr("Mapbox Access Token")
+                fact:               _viewer3DStreamingMapToken
                 enabled:            _viewer3DEnabled.rawValue
-                visible:            _viewer3DStreamingProviderToken.visible
+                visible:            _viewer3DStreamingMapToken.visible
             }
-        }
-
-        LabelledFactTextField {
-            Layout.fillWidth:   true
-            label:              qsTr("Average Building Level Height")
-            fact:               _viewer3DBuildingLevelHeight
-            enabled:            _viewer3DEnabled.rawValue
-            visible:            _viewer3DBuildingLevelHeight.visible
-        }
-
-        LabelledFactTextField {
-            Layout.fillWidth:   true
-            label:              qsTr("Vehicles Altitude Bias")
-            fact:               _viewer3DAltitudeBias
-            enabled:            _viewer3DEnabled.rawValue
-            visible:            _viewer3DAltitudeBias.visible
         }
     }
 }

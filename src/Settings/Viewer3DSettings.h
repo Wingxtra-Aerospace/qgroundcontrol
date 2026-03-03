@@ -22,9 +22,5 @@ public:
     DEFINE_SETTING_NAME_GROUP()
 
     DEFINE_SETTINGFACT(enabled)
-    DEFINE_SETTINGFACT(osmFilePath)
-    DEFINE_SETTINGFACT(streamingProvider)
     DEFINE_SETTINGFACT(streamingProviderToken)
-    DEFINE_SETTINGFACT(buildingLevelHeight)
-    DEFINE_SETTINGFACT(altitudeBias)
 };

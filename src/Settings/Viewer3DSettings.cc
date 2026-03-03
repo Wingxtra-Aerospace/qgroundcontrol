@@ -17,10 +17,6 @@ DECLARE_SETTINGGROUP(Viewer3D, "Viewer3D")
 }
 
 DECLARE_SETTINGSFACT(Viewer3DSettings, enabled)
-DECLARE_SETTINGSFACT(Viewer3DSettings, osmFilePath)
-DECLARE_SETTINGSFACT(Viewer3DSettings, streamingProvider)
 DECLARE_SETTINGSFACT(Viewer3DSettings, streamingProviderToken)
-DECLARE_SETTINGSFACT(Viewer3DSettings, buildingLevelHeight)
-DECLARE_SETTINGSFACT(Viewer3DSettings, altitudeBias)
 
 

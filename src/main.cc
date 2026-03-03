@@ -8,6 +8,7 @@
  ****************************************************************************/
 
 #include <QtQuick/QQuickWindow>
+#include <QtQuick/QSGRendererInterface>
 #include <QtWidgets/QApplication>
 
 #ifdef Q_OS_MACOS
@@ -119,8 +120,41 @@ int main(int argc, char *argv[])
 
 #ifdef QGC_STREAMING_3D
     // Must be set before any Q(Core)Application instance is created.
+    // Keep Qt Quick and Qt WebEngine on the same explicit OpenGL backend.
+    qputenv("QSG_RHI_BACKEND", QByteArrayLiteral("opengl"));
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", QByteArrayLiteral("--enable-webgl --ignore-gpu-blocklist --enable-unsafe-swiftshader"));
+
+    QStringList chromiumFlags = qEnvironmentVariable("QTWEBENGINE_CHROMIUM_FLAGS").split(' ', Qt::SkipEmptyParts);
+
+    auto appendChromiumFlagIfMissing = [&chromiumFlags](const QString &flag) {
+        if (!chromiumFlags.contains(flag)) {
+            chromiumFlags.append(flag);
+        }
+    };
+
+    // Keep existing backend selection from runtime/Qt defaults; forcing desktop/angle
+    // can fail on some systems in Release while Debug still works.
+    const QStringList gpuDisableFlags = {
+        QStringLiteral("--disable-gpu"),
+        QStringLiteral("--disable-gpu-compositing"),
+        QStringLiteral("--disable-gpu-rasterization"),
+        QStringLiteral("--disable-software-rasterizer")
+    };
+    for (const QString &flag : gpuDisableFlags) {
+        chromiumFlags.removeAll(flag);
+    }
+
+    appendChromiumFlagIfMissing(QStringLiteral("--enable-webgl"));
+    appendChromiumFlagIfMissing(QStringLiteral("--ignore-gpu-blocklist"));
+    appendChromiumFlagIfMissing(QStringLiteral("--enable-gpu-rasterization"));
+    appendChromiumFlagIfMissing(QStringLiteral("--enable-zero-copy"));
+    // Reduce wheel/scroll easing from Chromium which can feel "springy" in embedded WebEngine views.
+    appendChromiumFlagIfMissing(QStringLiteral("--disable-smooth-scrolling"));
+
+    const QByteArray chromiumFlagsBytes = chromiumFlags.join(' ').toLocal8Bit();
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlagsBytes);
+
     QtWebEngineQuick::initialize();
     qDebug() << "[Streaming3D] WebEngineQuick initialized on GUI thread";
 #endif

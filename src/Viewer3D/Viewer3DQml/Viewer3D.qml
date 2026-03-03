@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import QGroundControl
@@ -13,11 +12,6 @@ import QGroundControl.Palette
 import QGroundControl.ScreenTools
 import QGroundControl.Vehicle
 
-import QGroundControl.Viewer3D
-import Viewer3D.Models3D
-
-/// @author Omid Esrafilian <esrafilian.omid@gmail.com>
-
 Item {
     id: viewer3DBody
 
@@ -29,8 +23,7 @@ Item {
     // Existing setting: Fly View -> 3D View enabled
     property bool _viewer3DEnabled: QGroundControl.settingsManager.viewer3DSettings.enabled.rawValue
 
-    // New streaming feature flag (C++ global you added)
-    // Must be true to use the streaming loader
+    // Global feature flag controlled from C++
     property bool _streaming3DEnabled: QGroundControl.streaming3DEnabled
 
     // Error shown over the 3D area if streaming fails to load
@@ -45,30 +38,10 @@ Item {
         isDark: true
     }
 
-    function _setLegacyActive(active) {
-        // Legacy OSM viewer path
-        view3DManagerLoader.active = active
-        if (!active) {
-            view3DLoader.active = false
-        }
-    }
-
     function _setStreamingActive(active) {
         streaming3DLoader.active = active
         if (!active) {
             _streamingLoadError = ""
-        }
-    }
-
-    function _prewarmStreaming3D() {
-        if (_viewer3DEnabled !== true || _streaming3DEnabled !== true || isOpen) {
-            return
-        }
-
-        if (!streaming3DLoader.active) {
-            console.log("[Viewer3D] prewarming streaming 3D loader")
-            _setLegacyActive(false)
-            _setStreamingActive(true)
         }
     }
 
@@ -135,7 +108,6 @@ Item {
         _streamingCloseSyncPending = false
         streamingCloseSyncSafetyTimer.stop()
         isOpen = false
-        _setLegacyActive(false)
 
         // Keep streaming view alive across 2D/3D toggles to avoid full reload.
         // Unload only when explicitly requested (for example, disabling 3D).
@@ -155,30 +127,28 @@ Item {
     }
 
     function open() {
-        // Only open if the setting is enabled
         if (_viewer3DEnabled !== true) {
             return
         }
 
-        isOpen = true
+        if (_streaming3DEnabled !== true) {
+            _streamingLoadError = "Streaming 3D is disabled in this build."
+            return
+        }
 
+        isOpen = true
         console.log("[Viewer3D] open() enabled=", _viewer3DEnabled, "streaming=", _streaming3DEnabled)
 
-        // Choose one path ONLY
-        if (_streaming3DEnabled === true) {
-            _setLegacyActive(false)
-            _setStreamingActive(true)
-            if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
-                _streamingNeedsMapSyncOnOpen = false
-            }
-            if (streaming3DLoader.status === Loader.Ready &&
-                    streaming3DLoader.item &&
-                    typeof streaming3DLoader.item.activate === "function") {
-                streaming3DLoader.item.activate()
-            }
-        } else {
-            _setStreamingActive(false)
-            _setLegacyActive(true)
+        _setStreamingActive(true)
+
+        if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
+            _streamingNeedsMapSyncOnOpen = false
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.activate === "function") {
+            streaming3DLoader.item.activate()
         }
     }
 
@@ -212,111 +182,43 @@ Item {
         }
     }
 
-    Timer {
-        id: streamingPrewarmTimer
-        interval: 350
-        repeat: false
-        onTriggered: {
-            viewer3DBody._prewarmStreaming3D()
-        }
-    }
-
     visible: isOpen
     enabled: isOpen
-
-    Component.onCompleted: {
-        if (_viewer3DEnabled === true && _streaming3DEnabled === true) {
-            streamingPrewarmTimer.start()
-        }
-    }
 
     // If user disables 3D in Settings while open, close everything cleanly
     on_Viewer3DEnabledChanged: {
         if (_viewer3DEnabled === false) {
             _finalizeClose(true, false)
-        } else if (_streaming3DEnabled === true && !isOpen) {
-            streamingPrewarmTimer.restart()
         }
     }
 
-    // If streaming flag flips while open, swap implementations immediately
+    // If streaming flag flips while open, close/reopen streaming path accordingly
     on_Streaming3DEnabledChanged: {
+        if (_streaming3DEnabled !== true) {
+            _finalizeClose(true, false)
+            return
+        }
+
         if (!isOpen) {
             return
         }
 
-        console.log("[Viewer3D] streaming flag changed ->", _streaming3DEnabled)
-
-        if (_streaming3DEnabled === true) {
-            _setLegacyActive(false)
-            _setStreamingActive(true)
-            if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
-                _streamingNeedsMapSyncOnOpen = false
-            }
-        } else {
-            _setStreamingActive(false)
-            _setLegacyActive(true)
+        _setStreamingActive(true)
+        if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
+            _streamingNeedsMapSyncOnOpen = false
         }
     }
 
-    // -----------------------------
-    // Legacy (OSM) viewer path
-    // -----------------------------
-    Component {
-        id: viewer3DManagerComponent
-
-        Viewer3DManager {
-            id: _viewer3DManager
-        }
-    }
-
-    Loader {
-        id: view3DManagerLoader
-        active: false
-        sourceComponent: viewer3DManagerComponent
-
-        onLoaded: {
-            // Only proceed if legacy path is active
-            if (_streaming3DEnabled !== true) {
-                view3DLoader.active = true
-            }
-        }
-    }
-
-    Loader {
-        id: view3DLoader
-        anchors.fill: parent
-        active: false
-        source: "Models3D/Viewer3DModel.qml"
-
-        onLoaded: {
-            item.viewer3DManager = view3DManagerLoader.item
-        }
-    }
-
-    Binding {
-        target: view3DLoader.item
-        property: "isViewer3DOpen"
-        value: isOpen
-        when: (_streaming3DEnabled !== true) && (view3DLoader.status === Loader.Ready)
-    }
-
-    // -----------------------------
-    // Streaming viewer path
-    // -----------------------------
     Loader {
         id: streaming3DLoader
         anchors.fill: parent
         active: false
-
-        // Must be in the same folder as this file
         source: "Viewer3DStreaming.qml"
 
         onStatusChanged: {
             if (status === Loader.Loading) {
                 _streamingLoadError = ""
             } else if (status === Loader.Error) {
-                // Show actual failure reason (very helpful)
                 _streamingLoadError = "Streaming 3D failed to load: " + errorString()
                 console.log("[Streaming3D] Loader.Error:", errorString())
             } else if (status === Loader.Ready) {
@@ -333,7 +235,7 @@ Item {
         target: streaming3DLoader.item
         property: "viewerOpen"
         value: isOpen
-        when: (_streaming3DEnabled === true) && (streaming3DLoader.status === Loader.Ready)
+        when: (streaming3DLoader.status === Loader.Ready)
     }
 
     Connections {
