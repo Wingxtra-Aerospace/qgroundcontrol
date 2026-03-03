@@ -547,6 +547,35 @@
         return new Cesium.Viewer("globe", buildViewerOptions(terrainProvider, compatibilityMode));
     }
 
+    function disableSkyVisualEffects() {
+        if (!viewer || !viewer.scene) {
+            return;
+        }
+
+        const scene = viewer.scene;
+        if (scene.skyBox) {
+            scene.skyBox.show = false;
+        }
+        if (scene.skyAtmosphere) {
+            scene.skyAtmosphere.show = false;
+        }
+        if (scene.sun) {
+            scene.sun.show = false;
+        }
+        if (scene.moon) {
+            scene.moon.show = false;
+        }
+        if (scene.fog) {
+            scene.fog.enabled = false;
+        }
+        if (scene.globe) {
+            scene.globe.showGroundAtmosphere = false;
+        }
+        if (window.Cesium && Cesium.Color) {
+            scene.backgroundColor = Cesium.Color.BLACK;
+        }
+    }
+
     async function installBaseImageryLayer() {
         if (!viewer) {
             return;
@@ -616,6 +645,7 @@
                 }
             }
 
+            disableSkyVisualEffects();
             viewer.terrainProvider = terrainProvider;
             await installBaseImageryLayer();
             setupInteractionTracking();

@@ -60,6 +60,18 @@ Item {
         }
     }
 
+    function _prewarmStreaming3D() {
+        if (_viewer3DEnabled !== true || _streaming3DEnabled !== true || isOpen) {
+            return
+        }
+
+        if (!streaming3DLoader.active) {
+            console.log("[Viewer3D] prewarming streaming 3D loader")
+            _setLegacyActive(false)
+            _setStreamingActive(true)
+        }
+    }
+
     function _sync2DMapToStreaming3D() {
         if (_streaming3DEnabled !== true) {
             return false
@@ -200,13 +212,30 @@ Item {
         }
     }
 
+    Timer {
+        id: streamingPrewarmTimer
+        interval: 350
+        repeat: false
+        onTriggered: {
+            viewer3DBody._prewarmStreaming3D()
+        }
+    }
+
     visible: isOpen
     enabled: isOpen
+
+    Component.onCompleted: {
+        if (_viewer3DEnabled === true && _streaming3DEnabled === true) {
+            streamingPrewarmTimer.start()
+        }
+    }
 
     // If user disables 3D in Settings while open, close everything cleanly
     on_Viewer3DEnabledChanged: {
         if (_viewer3DEnabled === false) {
             _finalizeClose(true, false)
+        } else if (_streaming3DEnabled === true && !isOpen) {
+            streamingPrewarmTimer.restart()
         }
     }
 
@@ -298,6 +327,13 @@ Item {
                 }
             }
         }
+    }
+
+    Binding {
+        target: streaming3DLoader.item
+        property: "viewerOpen"
+        value: isOpen
+        when: (_streaming3DEnabled === true) && (streaming3DLoader.status === Loader.Ready)
     }
 
     Connections {

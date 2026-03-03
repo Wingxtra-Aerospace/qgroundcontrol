@@ -9,6 +9,7 @@ Item {
 
     property bool _isLoading: true
     property string _errorText: ""
+    property bool viewerOpen: false
     property var _viewer3DSettings: QGroundControl.settingsManager.viewer3DSettings
     property var _streamingProviderFact: _viewer3DSettings ? _viewer3DSettings.streamingProvider : null
     property var _streamingProviderTokenFact: _viewer3DSettings ? _viewer3DSettings.streamingProviderToken : null
@@ -144,7 +145,7 @@ Item {
         settings.localContentCanAccessRemoteUrls: true
         settings.localContentCanAccessFileUrls: true
         settings.webGLEnabled: true
-        focus: root.visible
+        focus: root.viewerOpen
 
         onLoadingChanged: function(loadRequest) {
             if (loadRequest.status === WebEngineView.LoadStartedStatus) {
@@ -154,7 +155,9 @@ Item {
                 root._isLoading = false;
                 root._pushStreamingConfigToPage();
                 root._pushMapViewToPage();
-                root.activate();
+                if (root.viewerOpen) {
+                    root.activate();
+                }
             } else if (loadRequest.status === WebEngineView.LoadFailedStatus) {
                 root._isLoading = false;
                 root._errorText = qsTr("Could not load streamed 3D map content. Check internet connectivity and try again.");
@@ -168,7 +171,7 @@ Item {
     }
 
     onVisibleChanged: {
-        if (visible) {
+        if (visible && viewerOpen) {
             activate();
         }
     }
