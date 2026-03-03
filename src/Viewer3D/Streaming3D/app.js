@@ -599,6 +599,7 @@
         });
 
         viewer.imageryLayers.addImageryProvider(arcGisImageryProvider);
+
         viewer.scene.requestRender();
     }
 
@@ -647,7 +648,12 @@
 
             disableSkyVisualEffects();
             viewer.terrainProvider = terrainProvider;
-            await installBaseImageryLayer();
+            try {
+                await installBaseImageryLayer();
+            } catch (imageryError) {
+                console.warn("Base imagery initialization error:", imageryError);
+                setWarning("Base imagery could not fully initialize. Rendering may use fallback textures.");
+            }
             setupInteractionTracking();
             viewer.scene.globe.depthTestAgainstTerrain = true;
             const initialMapViewState = normalizeMapViewState(window.__qgcMapViewState || pendingMapViewState);
