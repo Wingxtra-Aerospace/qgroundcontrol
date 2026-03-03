@@ -16,6 +16,24 @@
     "default":          "Please select an OSM file"
 },
 {
+    "name":             "streamingProvider",
+    "shortDesc":        "Online streaming provider for the 3D viewer.",
+    "type":             "string",
+    "default":          "ArcGIS"
+},
+{
+    "name":             "streamingProviderToken",
+    "shortDesc":        "Optional access token for the online 3D streaming provider.",
+    "type":             "string",
+    "default":          ""
+},
+{
+    "name":             "streamingBuildingsLayerUrl",
+    "shortDesc":        "ArcGIS Scene Layer URL used for streamed 3D buildings.",
+    "type":             "string",
+    "default":          ""
+},
+{
     "name":             "buildingLevelHeight",
     "shortDesc":        "Average Height for each level of the buildings",
     "type":             "double",

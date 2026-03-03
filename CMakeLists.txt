@@ -174,38 +174,53 @@ else()
     set(QGC_QT_ANDROID_MIN_SDK_VERSION "28" CACHE STRING "Android Min SDK Version")
 endif()
 
+set(QGC_REQUIRED_QT_COMPONENTS
+    Charts
+    Concurrent
+    Core
+    Core5Compat
+    Gui
+    LinguistTools
+    Location
+    Multimedia
+    Network
+    OpenGL
+    Positioning
+    Qml
+    QmlIntegration
+    Quick
+    QuickControls2
+    QuickWidgets
+    Sensors
+    Sql
+    Svg
+    TextToSpeech
+    Widgets
+    Xml
+)
+
+if(QGC_STREAMING_3D)
+    list(APPEND QGC_REQUIRED_QT_COMPONENTS
+        WebChannel
+        WebEngineQuick
+    )
+endif()
+
+set(QGC_OPTIONAL_QT_COMPONENTS
+    Bluetooth
+    MultimediaQuickPrivate
+    Quick3D
+    SerialPort
+    Test
+)
+
 find_package(Qt6
     ${QGC_QT_MINIMUM_VERSION}...${QGC_QT_MAXIMUM_VERSION}
     REQUIRED
     COMPONENTS
-        Charts
-        Concurrent
-        Core
-        Core5Compat
-        Gui
-        LinguistTools
-        Location
-        Multimedia
-        Network
-        OpenGL
-        Positioning
-        Qml
-        QmlIntegration
-        Quick
-        QuickControls2
-        QuickWidgets
-        Sensors
-        Sql
-        Svg
-        TextToSpeech
-        Widgets
-        Xml
+        ${QGC_REQUIRED_QT_COMPONENTS}
     OPTIONAL_COMPONENTS
-        Bluetooth
-        MultimediaQuickPrivate
-        Quick3D
-        SerialPort
-        Test
+        ${QGC_OPTIONAL_QT_COMPONENTS}
 )
 
 if(LINUX)
@@ -272,6 +287,12 @@ list(APPEND QGC_RESOURCES
     ${CMAKE_SOURCE_DIR}/qgcresources.qrc
     ${CMAKE_SOURCE_DIR}/qgroundcontrol.qrc
 )
+
+if(QGC_STREAMING_3D)
+    list(APPEND QGC_RESOURCES
+        ${CMAKE_SOURCE_DIR}/src/Viewer3D/streaming3d.qrc
+    )
+endif()
 
 list(APPEND QGC_RESOURCES
     ${CMAKE_SOURCE_DIR}/resources/InstrumentValueIcons/InstrumentValueIcons.qrc

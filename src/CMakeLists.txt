@@ -56,6 +56,15 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         VehicleSetupModule
 )
 
+if(QGC_STREAMING_3D)
+    target_link_libraries(${CMAKE_PROJECT_NAME}
+        PRIVATE
+            Qt6::WebChannel
+            Qt6::WebEngineQuick
+    )
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE QGC_STREAMING_3D)
+endif()
+
 if(NOT QGC_DISABLE_APM_PLUGIN AND NOT QGC_DISABLE_APM_PLUGIN_FACTORY)
     target_link_libraries(${CMAKE_PROJECT_NAME}
         PRIVATE

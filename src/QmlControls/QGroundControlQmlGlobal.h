@@ -112,6 +112,7 @@ public:
     Q_PROPERTY(qreal zOrderWaypointLines        READ zOrderWaypointLines        CONSTANT)
     Q_PROPERTY(bool     hasAPMSupport           READ hasAPMSupport              CONSTANT)
     Q_PROPERTY(bool     hasMAVLinkInspector     READ hasMAVLinkInspector        CONSTANT)
+    Q_PROPERTY(bool     streaming3DEnabled      READ streaming3DEnabled         CONSTANT)
 
 
     //-------------------------------------------------------------------------
@@ -203,6 +204,8 @@ public:
 #else
     bool    hasMAVLinkInspector     () { return true; }
 #endif
+
+    bool    streaming3DEnabled      () const;
 
     QString elevationProviderName   ();
     QString elevationProviderNotice ();

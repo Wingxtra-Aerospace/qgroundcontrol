@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QGC Streaming 3D</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.126/Build/Cesium/Widgets/widgets.css">
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div id="globe"></div>
+    <div class="overlay-panel">
+        <label class="toggle-control" for="buildings-toggle">
+            <input id="buildings-toggle" type="checkbox">
+            <span>Buildings</span>
+        </label>
+    </div>
+    <div id="status" class="status hidden" role="status" aria-live="polite"></div>
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.126/Build/Cesium/Cesium.js"></script>
+    <script src="./app.js"></script>
+</body>
+</html>

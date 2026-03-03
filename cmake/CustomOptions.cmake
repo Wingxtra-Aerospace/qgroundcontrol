@@ -27,6 +27,13 @@ cmake_dependent_option(QGC_DEBUG_QML "Build QGroundControl with QML debugging/pr
 # Features
 option(QGC_UTM_ADAPTER "Enable UTM Adapter" OFF)
 option(QGC_VIEWER3D "Enable Viewer3D" ON) # Qt6Quick3D_FOUND
+# Streaming 3D currently depends on Qt WebEngine + WebChannel.
+if(WIN32)
+    set(_qgc_streaming_3d_default ON)
+else()
+    set(_qgc_streaming_3d_default OFF)
+endif()
+option(QGC_STREAMING_3D "Enable Streaming 3D support (Qt WebEngine + WebChannel)" ${_qgc_streaming_3d_default})
 # option(QGC_DISABLE_MAVLINK_INSPECTOR "Disable Mavlink Inspector" OFF) # This removes QtCharts which is GPL licensed
 
 # Comms

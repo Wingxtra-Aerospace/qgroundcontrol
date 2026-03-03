@@ -23,6 +23,9 @@ public:
 
     DEFINE_SETTINGFACT(enabled)
     DEFINE_SETTINGFACT(osmFilePath)
+    DEFINE_SETTINGFACT(streamingProvider)
+    DEFINE_SETTINGFACT(streamingProviderToken)
+    DEFINE_SETTINGFACT(streamingBuildingsLayerUrl)
     DEFINE_SETTINGFACT(buildingLevelHeight)
     DEFINE_SETTINGFACT(altitudeBias)
 };

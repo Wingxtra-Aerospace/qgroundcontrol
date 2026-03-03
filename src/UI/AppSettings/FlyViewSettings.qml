@@ -38,8 +38,11 @@ SettingsPage {
     property Fact   _forwardFlightGoToLocationLoiterRad:    _flyViewSettings.forwardFlightGoToLocationLoiterRad
     property Fact   _goToLocationRequiresConfirmInGuided:   _flyViewSettings.goToLocationRequiresConfirmInGuided
     property var    _viewer3DSettings:                      _settingsManager.viewer3DSettings
+    property bool   _streaming3DEnabled:                    QGroundControl.streaming3DEnabled
     property Fact   _viewer3DEnabled:                       _viewer3DSettings.enabled
     property Fact   _viewer3DOsmFilePath:                   _viewer3DSettings.osmFilePath
+    property Fact   _viewer3DStreamingProviderToken:        _viewer3DSettings.streamingProviderToken
+    property Fact   _viewer3DStreamingBuildingsLayerUrl:    _viewer3DSettings.streamingBuildingsLayerUrl
     property Fact   _viewer3DBuildingLevelHeight:           _viewer3DSettings.buildingLevelHeight
     property Fact   _viewer3DAltitudeBias:                  _viewer3DSettings.altitudeBias
 
@@ -254,8 +257,8 @@ SettingsPage {
         ColumnLayout{
             Layout.fillWidth:   true
             spacing:            ScreenTools.defaultFontPixelWidth
-            enabled:            _viewer3DEnabled.rawValue
-            visible:            _viewer3DOsmFilePath.rawValue
+            enabled:            _viewer3DEnabled.rawValue && !_streaming3DEnabled
+            visible:            !_streaming3DEnabled && _viewer3DOsmFilePath.visible
 
             RowLayout{
                 Layout.fillWidth:   true
@@ -316,6 +319,35 @@ SettingsPage {
                         }
                     }
                 }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth:   true
+            spacing:            ScreenTools.defaultFontPixelWidth
+            enabled:            _viewer3DEnabled.rawValue
+            visible:            _streaming3DEnabled
+
+            QGCLabel {
+                Layout.fillWidth:   true
+                wrapMode:           Text.WordWrap
+                text:               qsTr("Online streaming 3D (ArcGIS)")
+            }
+
+            LabelledFactTextField {
+                Layout.fillWidth:   true
+                label:              qsTr("ArcGIS Token (Optional)")
+                fact:               _viewer3DStreamingProviderToken
+                enabled:            _viewer3DEnabled.rawValue
+                visible:            _viewer3DStreamingProviderToken.visible
+            }
+
+            LabelledFactTextField {
+                Layout.fillWidth:   true
+                label:              qsTr("Buildings Layer URL (Optional)")
+                fact:               _viewer3DStreamingBuildingsLayerUrl
+                enabled:            _viewer3DEnabled.rawValue
+                visible:            _viewer3DStreamingBuildingsLayerUrl.visible
             }
         }
 

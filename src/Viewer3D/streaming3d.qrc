@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/qml">
+        <file alias="Viewer3D/Viewer3DStreaming.qml">Viewer3DQml/Viewer3DStreaming.qml</file>
+    </qresource>
+    <qresource prefix="/">
+        <file alias="streaming3d/index.html">Streaming3D/index.html</file>
+        <file alias="streaming3d/app.js">Streaming3D/app.js</file>
+        <file alias="streaming3d/style.css">Streaming3D/style.css</file>
+    </qresource>
+</RCC>

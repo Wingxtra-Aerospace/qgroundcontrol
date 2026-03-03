@@ -286,6 +286,15 @@ bool QGroundControlQmlGlobal::apmFirmwareSupported()
     return FirmwarePluginManager::instance()->supportedFirmwareClasses().contains(QGCMAVLink::FirmwareClassArduPilot);
 }
 
+bool QGroundControlQmlGlobal::streaming3DEnabled() const
+{
+#ifdef QGC_STREAMING_3D
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool QGroundControlQmlGlobal::linesIntersect(QPointF line1A, QPointF line1B, QPointF line2A, QPointF line2B)
 {
     QPointF intersectPoint;

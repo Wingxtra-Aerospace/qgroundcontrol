@@ -34,6 +34,12 @@
 
 #include <QtCore/private/qthread_p.h>
 
+#ifdef QGC_STREAMING_3D
+#include <QtCore/QThread>
+#include <QtWebEngineQuick/QtWebEngineQuick>
+#include <mutex>
+#endif
+
 #include "QGCLogging.h"
 #include "AudioOutput.h"
 #include "AutoPilotPlugin.h"
@@ -89,6 +95,33 @@
 #endif
 
 QGC_LOGGING_CATEGORY(QGCApplicationLog, "qgc.qgcapplication")
+
+#ifdef QGC_STREAMING_3D
+static void initializeStreaming3DWebEngineQuick()
+{
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, []() {
+        QGCApplication *const app = qgcApp();
+        if (!app) {
+            qCCritical(QGCApplicationLog) << "[Streaming3D] Failed to initialize WebEngineQuick: application is null.";
+            return;
+        }
+
+        const bool onGuiThread = (QThread::currentThread() == app->thread());
+        Q_ASSERT(onGuiThread);
+        if (!onGuiThread) {
+            qCCritical(QGCApplicationLog) << "[Streaming3D] Failed to initialize WebEngineQuick: not on GUI thread.";
+            return;
+        }
+
+        // Allow hardware WebGL when available, but keep software fallback available when GPU init fails.
+        qputenv("QTWEBENGINE_CHROMIUM_FLAGS", QByteArrayLiteral("--enable-webgl --ignore-gpu-blocklist --enable-unsafe-swiftshader"));
+
+        QtWebEngineQuick::initialize();
+        qCDebug(QGCApplicationLog) << "[Streaming3D] WebEngineQuick initialized on GUI thread";
+    });
+}
+#endif
 
 // Qml Singleton factories
 
@@ -342,6 +375,11 @@ void QGCApplication::_initVideo()
 void QGCApplication::_initForNormalAppBoot()
 {
     _initVideo(); // GStreamer must be initialized before QmlEngine
+
+#ifdef QGC_STREAMING_3D
+    // Initialize WebEngine after graphics API selection and before any QML/WebEngine content loads.
+    initializeStreaming3DWebEngineQuick();
+#endif
 
     QQuickStyle::setStyle("Basic");
     QGCCorePlugin::instance()->init();
