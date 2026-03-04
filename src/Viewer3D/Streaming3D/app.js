@@ -55,23 +55,29 @@
     };
     let hasUserInteractedSinceExternalSync = false;
     let isApplyingExternalMapView = false;
+    let hasReceivedExternalConfig = false;
+    let hasReceivedExternalMapView = false;
 
     const MIN_MAP_ZOOM = 2.0;
     const MAX_MAP_ZOOM = 20.0;
     const DEFAULT_PITCH_DEGREES = 65.0;
     const DEFAULT_BEARING_DEGREES = 0.0;
     const DEFAULT_STYLE_URL = "mapbox://styles/mapbox/standard-satellite";
-    const WHEEL_ZOOM_RATE = 1 / 1200;
-    const TRACKPAD_ZOOM_RATE = 1 / 220;
-    const PAN_MAX_SPEED = 950;
-    const PAN_DECELERATION = 8000;
-    const ROTATE_MAX_SPEED = 280;
-    const ROTATE_DECELERATION = 3200;
+    const WHEEL_ZOOM_RATE = 1 / 1500;
+    const TRACKPAD_ZOOM_RATE = 1 / 260;
+    const PAN_MAX_SPEED = 760;
+    const PAN_DECELERATION = 9800;
+    const ROTATE_MAX_SPEED = 210;
+    const ROTATE_DECELERATION = 4800;
     const TERRAIN_EXAGGERATION = 1.08;
     const ENABLE_ATMOSPHERIC_FOG = false;
-    const BUILDING_LAYER_OPACITY = 0.56;
+    const BUILDING_LAYER_OPACITY = 0.6;
     const BUILDING_VECTOR_SOURCE_ID = "qgc-buildings-source";
     const BUILDING_VECTOR_SOURCE_URL = "mapbox://mapbox.mapbox-streets-v8";
+    const BUILDING_GROWTH_START_ZOOM = 14.6;
+    const BUILDING_GROWTH_END_ZOOM = 16.0;
+    const BUILDING_GROWTH_CURVE = 1.6;
+    const MISSING_TOKEN_MESSAGE = "Mapbox token is required for streamed 3D mode.";
 
     function isNoisyWebGLWarning(message) {
         if (!message) {
@@ -194,12 +200,32 @@
     function validateToken(showMessage) {
         if (!streamingConfig.token || streamingConfig.token.length === 0) {
             if (showMessage === true) {
-                setError("Mapbox token is required for streamed 3D mode.");
+                setError(MISSING_TOKEN_MESSAGE);
             }
             return false;
         }
 
         return true;
+    }
+
+    function hasInitialMapViewState() {
+        return normalizeMapViewState(window.__qgcMapViewState || pendingMapViewState) !== null;
+    }
+
+    function maybeCreateMapIfReady() {
+        if (map || mapInitializing) {
+            return;
+        }
+
+        if (!validateToken(false)) {
+            return;
+        }
+
+        if (!hasInitialMapViewState()) {
+            return;
+        }
+
+        createMap();
     }
 
     function installMapboxTerrainAndBuildings() {
@@ -236,43 +262,46 @@
         const firstLabelLayerId = style && style.layers
             ? style.layers.find(function (layer) { return layer.type === "symbol"; })
             : null;
+        const buildingTargetHeight = ["to-number", ["get", "height"], 0];
+        const buildingTargetBase = ["to-number", ["get", "min_height"], 0];
 
-        map.addLayer({
-            id: "qgc-3d-buildings",
-            source: BUILDING_VECTOR_SOURCE_ID,
-            "source-layer": "building",
-            // Capture both old/new schema variants so buildings appear consistently.
-            filter: [
-                "any",
-                ["==", ["get", "extrude"], "true"],
-                ["==", ["get", "extrude"], true],
-                ["has", "height"],
-                ["has", "render_height"],
-                ["has", "levels"]
-            ],
-            type: "fill-extrusion",
-            minzoom: 14.0,
-            paint: {
-                "fill-extrusion-color": "#cad4df",
-                "fill-extrusion-height": [
-                    "interpolate", ["linear"], ["zoom"],
-                    14, 0,
-                    15, [
-                        "coalesce",
-                        ["to-number", ["get", "height"], 0],
-                        ["to-number", ["get", "render_height"], 0],
-                        ["*", ["to-number", ["get", "levels"], 0], 3],
-                        18
-                    ]
+        try {
+            map.addLayer({
+                id: "qgc-3d-buildings",
+                source: BUILDING_VECTOR_SOURCE_ID,
+                "source-layer": "building",
+                // Capture both old/new schema variants so buildings appear consistently.
+                filter: [
+                    "any",
+                    ["==", ["get", "extrude"], "true"],
+                    ["==", ["get", "extrude"], true],
+                    ["has", "height"],
+                    ["has", "render_height"],
+                    ["has", "levels"]
                 ],
-                "fill-extrusion-base": [
-                    "interpolate", ["linear"], ["zoom"],
-                    14, 0,
-                    15, ["to-number", ["get", "min_height"], 0]
-                ],
-                "fill-extrusion-opacity": BUILDING_LAYER_OPACITY
-            }
-        }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
+                type: "fill-extrusion",
+                // Keep layer active slightly before growth start so we avoid a hard layer pop.
+                minzoom: BUILDING_GROWTH_START_ZOOM - 1.0,
+                paint: {
+                    "fill-extrusion-color": "#aaa",
+                    "fill-extrusion-height": [
+                        "interpolate", ["exponential", BUILDING_GROWTH_CURVE], ["zoom"],
+                        BUILDING_GROWTH_START_ZOOM, 0,
+                        BUILDING_GROWTH_END_ZOOM, buildingTargetHeight
+                    ],
+                    "fill-extrusion-base": [
+                        "interpolate", ["exponential", BUILDING_GROWTH_CURVE], ["zoom"],
+                        BUILDING_GROWTH_START_ZOOM, 0,
+                        BUILDING_GROWTH_END_ZOOM, buildingTargetBase
+                    ],
+                    "fill-extrusion-opacity": BUILDING_LAYER_OPACITY
+                }
+            }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
+
+            console.warn("[Streaming3D] Buildings layer added source:", BUILDING_VECTOR_SOURCE_ID, "zoom:", BUILDING_GROWTH_START_ZOOM, "->", BUILDING_GROWTH_END_ZOOM);
+        } catch (buildingLayerError) {
+            console.warn("building layer setup failed:", buildingLayerError);
+        }
 
         if (ENABLE_ATMOSPHERIC_FOG && typeof map.setFog === "function") {
             try {
@@ -345,7 +374,7 @@
         try {
             if (map.dragPan && typeof map.dragPan.enable === "function") {
                 map.dragPan.enable({
-                    linearity: 0.12,
+                    linearity: 0.10,
                     easing: function (t) { return t; },
                     maxSpeed: PAN_MAX_SPEED,
                     deceleration: PAN_DECELERATION
@@ -358,7 +387,7 @@
         try {
             if (map.dragRotate && typeof map.dragRotate.enable === "function") {
                 map.dragRotate.enable({
-                    linearity: 0.12,
+                    linearity: 0.10,
                     easing: function (t) { return t; },
                     maxSpeed: ROTATE_MAX_SPEED,
                     deceleration: ROTATE_DECELERATION
@@ -451,11 +480,19 @@
     }
 
     window.__qgcApplyStreaming3DConfig = function (config) {
+        hasReceivedExternalConfig = true;
         applyStreamingConfig(config);
-        // Token may arrive after initial startup attempt. Retry map init automatically.
-        if (!map && !mapInitializing && validateToken(false)) {
-            createMap();
+        if (!validateToken(false)) {
+            setError(MISSING_TOKEN_MESSAGE);
+            return;
         }
+
+        if (activeStatusType === "error") {
+            setStatus("", "");
+        }
+
+        // Wait for both token and initial 2D map state before creating the map.
+        maybeCreateMapIfReady();
     };
 
     window.__qgcOnViewerActivated = function () {
@@ -473,8 +510,10 @@
             return false;
         }
 
+        hasReceivedExternalMapView = true;
         pendingMapViewState = normalized;
         if (!map || !mapLoaded) {
+            maybeCreateMapIfReady();
             return false;
         }
 
@@ -525,7 +564,18 @@
         try {
             mapInitializing = true;
             applyStreamingConfig(window.__qgcStreaming3DConfig || {});
-            if (!validateToken(true)) {
+            if (!validateToken(false)) {
+                if (hasReceivedExternalConfig) {
+                    setError(MISSING_TOKEN_MESSAGE);
+                }
+                mapInitializing = false;
+                return;
+            }
+
+            if (!hasInitialMapViewState()) {
+                if (hasReceivedExternalMapView) {
+                    console.warn("initial map view state is invalid");
+                }
                 mapInitializing = false;
                 return;
             }
@@ -550,7 +600,9 @@
                 maxPitch: 85,
                 antialias: false,
                 attributionControl: false,
-                hash: false
+                hash: false,
+                fadeDuration: 0,
+                renderWorldCopies: false
             });
 
             configureInteractionHandlers();
@@ -611,5 +663,5 @@
     });
 
     setupHomeButton();
-    createMap();
+    maybeCreateMapIfReady();
 })();

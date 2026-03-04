@@ -45,6 +45,17 @@ Item {
         }
     }
 
+    function _prewarmStreaming3D() {
+        if (_viewer3DEnabled !== true || _streaming3DEnabled !== true) {
+            return
+        }
+
+        if (streaming3DLoader.active !== true) {
+            console.log("[Viewer3D] prewarming streaming 3D loader")
+            _setStreamingActive(true)
+        }
+    }
+
     function _sync2DMapToStreaming3D() {
         if (_streaming3DEnabled !== true) {
             return false
@@ -189,7 +200,10 @@ Item {
     on_Viewer3DEnabledChanged: {
         if (_viewer3DEnabled === false) {
             _finalizeClose(true, false)
+            return
         }
+
+        _prewarmStreaming3D()
     }
 
     // If streaming flag flips while open, close/reopen streaming path accordingly
@@ -199,6 +213,8 @@ Item {
             return
         }
 
+        _prewarmStreaming3D()
+
         if (!isOpen) {
             return
         }
@@ -207,6 +223,10 @@ Item {
         if (_streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
             _streamingNeedsMapSyncOnOpen = false
         }
+    }
+
+    Component.onCompleted: {
+        _prewarmStreaming3D()
     }
 
     Loader {
