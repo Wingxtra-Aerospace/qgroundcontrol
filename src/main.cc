@@ -151,6 +151,11 @@ int main(int argc, char *argv[])
     appendChromiumFlagIfMissing(QStringLiteral("--enable-zero-copy"));
     // Reduce wheel/scroll easing from Chromium which can feel "springy" in embedded WebEngine views.
     appendChromiumFlagIfMissing(QStringLiteral("--disable-smooth-scrolling"));
+#ifndef QT_DEBUG
+    // Keep Chromium GPU/GL diagnostics from flooding the app log and stalling rendering on some drivers.
+    appendChromiumFlagIfMissing(QStringLiteral("--disable-logging"));
+    appendChromiumFlagIfMissing(QStringLiteral("--log-level=3"));
+#endif
 
     const QByteArray chromiumFlagsBytes = chromiumFlags.join(' ').toLocal8Bit();
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlagsBytes);

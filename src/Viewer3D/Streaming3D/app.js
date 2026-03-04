@@ -40,15 +40,6 @@
         return String(arg);
     }
 
-    const originalConsoleError = console.error.bind(console);
-    const originalConsoleWarn = console.warn.bind(console);
-    console.error = function (...args) {
-        originalConsoleError(args.map(formatConsoleArg).join(" | "));
-    };
-    console.warn = function (...args) {
-        originalConsoleWarn(args.map(formatConsoleArg).join(" | "));
-    };
-
     let map = null;
     let mapLoaded = false;
     let mapInitializing = false;
@@ -70,6 +61,37 @@
     const DEFAULT_PITCH_DEGREES = 65.0;
     const DEFAULT_BEARING_DEGREES = 0.0;
     const DEFAULT_STYLE_URL = "mapbox://styles/mapbox/standard-satellite";
+    const WHEEL_ZOOM_RATE = 1 / 1200;
+    const TRACKPAD_ZOOM_RATE = 1 / 220;
+    const PAN_MAX_SPEED = 950;
+    const PAN_DECELERATION = 8000;
+    const ROTATE_MAX_SPEED = 280;
+    const ROTATE_DECELERATION = 3200;
+    const TERRAIN_EXAGGERATION = 1.08;
+    const ENABLE_ATMOSPHERIC_FOG = false;
+    const ENABLE_BASEMAP_3D_OBJECTS = false;
+
+    function isNoisyWebGLWarning(message) {
+        if (!message) {
+            return false;
+        }
+
+        return message.indexOf("PERFORMANCE WARNING: Attribute 0 is disabled") !== -1 ||
+            message.indexOf("WebGL: too many errors, no more errors will be reported") !== -1;
+    }
+
+    const originalConsoleError = console.error.bind(console);
+    const originalConsoleWarn = console.warn.bind(console);
+    console.error = function (...args) {
+        originalConsoleError(args.map(formatConsoleArg).join(" | "));
+    };
+    console.warn = function (...args) {
+        const line = args.map(formatConsoleArg).join(" | ");
+        if (isNoisyWebGLWarning(line)) {
+            return;
+        }
+        originalConsoleWarn(line);
+    };
 
     function clampValue(value, minValue, maxValue) {
         return Math.max(minValue, Math.min(maxValue, value));
@@ -194,12 +216,13 @@
 
         map.setTerrain({
             source: "mapbox-dem",
-            exaggeration: 1.12
+            exaggeration: TERRAIN_EXAGGERATION
         });
 
         if (typeof map.setConfigProperty === "function") {
             try {
-                map.setConfigProperty("basemap", "show3dObjects", true);
+                // Avoid duplicate 3D paths. Buildings are rendered by qgc-3d-buildings below.
+                map.setConfigProperty("basemap", "show3dObjects", ENABLE_BASEMAP_3D_OBJECTS);
             } catch (configError) {
                 console.warn("basemap 3d object config skipped:", configError);
             }
@@ -235,7 +258,7 @@
             }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
         }
 
-        if (typeof map.setFog === "function") {
+        if (ENABLE_ATMOSPHERIC_FOG && typeof map.setFog === "function") {
             try {
                 map.setFog({
                     range: [-1.0, 2.0],
@@ -280,6 +303,53 @@
             console.warn("[Streaming3D] WebGL renderer:", renderer, "vendor:", vendor);
         } catch (error) {
             console.warn("renderer diagnostics failed:", error);
+        }
+    }
+
+    function configureInteractionHandlers() {
+        if (!map) {
+            return;
+        }
+
+        // Tune interaction inertia for desktop mouse usage in QWebEngine.
+        try {
+            if (map.scrollZoom && typeof map.scrollZoom.enable === "function") {
+                map.scrollZoom.enable({ around: "center" });
+            }
+            if (map.scrollZoom && typeof map.scrollZoom.setWheelZoomRate === "function") {
+                map.scrollZoom.setWheelZoomRate(WHEEL_ZOOM_RATE);
+            }
+            if (map.scrollZoom && typeof map.scrollZoom.setZoomRate === "function") {
+                map.scrollZoom.setZoomRate(TRACKPAD_ZOOM_RATE);
+            }
+        } catch (zoomTuningError) {
+            console.warn("scroll zoom tuning skipped:", zoomTuningError);
+        }
+
+        try {
+            if (map.dragPan && typeof map.dragPan.enable === "function") {
+                map.dragPan.enable({
+                    linearity: 0.12,
+                    easing: function (t) { return t; },
+                    maxSpeed: PAN_MAX_SPEED,
+                    deceleration: PAN_DECELERATION
+                });
+            }
+        } catch (panTuningError) {
+            console.warn("drag pan tuning skipped:", panTuningError);
+        }
+
+        try {
+            if (map.dragRotate && typeof map.dragRotate.enable === "function") {
+                map.dragRotate.enable({
+                    linearity: 0.12,
+                    easing: function (t) { return t; },
+                    maxSpeed: ROTATE_MAX_SPEED,
+                    deceleration: ROTATE_DECELERATION
+                });
+            }
+        } catch (rotateTuningError) {
+            console.warn("drag rotate tuning skipped:", rotateTuningError);
         }
     }
 
@@ -458,19 +528,23 @@
                 zoom: initialMapViewState.zoom,
                 pitch: DEFAULT_PITCH_DEGREES,
                 bearing: DEFAULT_BEARING_DEGREES,
+                projection: "mercator",
                 minZoom: MIN_MAP_ZOOM,
                 maxZoom: MAX_MAP_ZOOM,
                 maxPitch: 85,
-                antialias: true,
+                antialias: false,
                 attributionControl: false,
                 hash: false
             });
+
+            configureInteractionHandlers();
 
             map.on("load", function () {
                 mapLoaded = true;
                 mapInitializing = false;
                 clearWarning();
                 setStatus("", "");
+                configureInteractionHandlers();
                 installMapboxTerrainAndBuildings();
                 setupInteractionTracking();
                 if (pendingMapViewState) {

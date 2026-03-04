@@ -145,6 +145,22 @@ Item {
         settings.webGLEnabled: true
         focus: root.viewerOpen
 
+        onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceID) {
+            const text = String(message || "");
+            if (text.indexOf("PERFORMANCE WARNING: Attribute 0 is disabled") !== -1 ||
+                    text.indexOf("WebGL: too many errors, no more errors will be reported") !== -1) {
+                return;
+            }
+
+            if (level === WebEngineView.ErrorMessageLevel) {
+                console.error(text);
+            } else if (level === WebEngineView.WarningMessageLevel) {
+                console.warn(text);
+            } else {
+                console.log(text);
+            }
+        }
+
         onLoadingChanged: function(loadRequest) {
             if (loadRequest.status === WebEngineView.LoadStartedStatus) {
                 root._isLoading = true;
