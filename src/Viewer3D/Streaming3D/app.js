@@ -69,7 +69,9 @@
     const ROTATE_DECELERATION = 3200;
     const TERRAIN_EXAGGERATION = 1.08;
     const ENABLE_ATMOSPHERIC_FOG = false;
-    const ENABLE_BASEMAP_3D_OBJECTS = false;
+    const BUILDING_LAYER_OPACITY = 0.56;
+    const BUILDING_VECTOR_SOURCE_ID = "qgc-buildings-source";
+    const BUILDING_VECTOR_SOURCE_URL = "mapbox://mapbox.mapbox-streets-v8";
 
     function isNoisyWebGLWarning(message) {
         if (!message) {
@@ -219,44 +221,58 @@
             exaggeration: TERRAIN_EXAGGERATION
         });
 
-        if (typeof map.setConfigProperty === "function") {
-            try {
-                // Avoid duplicate 3D paths. Buildings are rendered by qgc-3d-buildings below.
-                map.setConfigProperty("basemap", "show3dObjects", ENABLE_BASEMAP_3D_OBJECTS);
-            } catch (configError) {
-                console.warn("basemap 3d object config skipped:", configError);
+        if (map.getLayer("qgc-3d-buildings")) {
+            map.removeLayer("qgc-3d-buildings");
+        }
+
+        if (!map.getSource(BUILDING_VECTOR_SOURCE_ID)) {
+            map.addSource(BUILDING_VECTOR_SOURCE_ID, {
+                type: "vector",
+                url: BUILDING_VECTOR_SOURCE_URL
+            });
+        }
+
+        const style = map.getStyle();
+        const firstLabelLayerId = style && style.layers
+            ? style.layers.find(function (layer) { return layer.type === "symbol"; })
+            : null;
+
+        map.addLayer({
+            id: "qgc-3d-buildings",
+            source: BUILDING_VECTOR_SOURCE_ID,
+            "source-layer": "building",
+            // Capture both old/new schema variants so buildings appear consistently.
+            filter: [
+                "any",
+                ["==", ["get", "extrude"], "true"],
+                ["==", ["get", "extrude"], true],
+                ["has", "height"],
+                ["has", "render_height"],
+                ["has", "levels"]
+            ],
+            type: "fill-extrusion",
+            minzoom: 14.0,
+            paint: {
+                "fill-extrusion-color": "#cad4df",
+                "fill-extrusion-height": [
+                    "interpolate", ["linear"], ["zoom"],
+                    14, 0,
+                    15, [
+                        "coalesce",
+                        ["to-number", ["get", "height"], 0],
+                        ["to-number", ["get", "render_height"], 0],
+                        ["*", ["to-number", ["get", "levels"], 0], 3],
+                        18
+                    ]
+                ],
+                "fill-extrusion-base": [
+                    "interpolate", ["linear"], ["zoom"],
+                    14, 0,
+                    15, ["to-number", ["get", "min_height"], 0]
+                ],
+                "fill-extrusion-opacity": BUILDING_LAYER_OPACITY
             }
-        }
-
-        if (!map.getLayer("qgc-3d-buildings") && map.getSource("composite")) {
-            const style = map.getStyle();
-            const firstLabelLayerId = style && style.layers
-                ? style.layers.find(function (layer) { return layer.type === "symbol"; })
-                : null;
-
-            map.addLayer({
-                id: "qgc-3d-buildings",
-                source: "composite",
-                "source-layer": "building",
-                filter: ["==", ["get", "extrude"], "true"],
-                type: "fill-extrusion",
-                minzoom: 15,
-                paint: {
-                    "fill-extrusion-color": "#d7dbe2",
-                    "fill-extrusion-height": [
-                        "interpolate", ["linear"], ["zoom"],
-                        15, 0,
-                        16, ["coalesce", ["get", "height"], 10]
-                    ],
-                    "fill-extrusion-base": [
-                        "interpolate", ["linear"], ["zoom"],
-                        15, 0,
-                        16, ["coalesce", ["get", "min_height"], 0]
-                    ],
-                    "fill-extrusion-opacity": 0.72
-                }
-            }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
-        }
+        }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
 
         if (ENABLE_ATMOSPHERIC_FOG && typeof map.setFog === "function") {
             try {
