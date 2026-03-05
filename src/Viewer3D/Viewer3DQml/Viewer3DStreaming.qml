@@ -1,4 +1,5 @@
 import QGroundControl
+import QGroundControl.Controllers
 import QtQuick
 import QtQuick.Controls
 import QtPositioning
@@ -10,8 +11,18 @@ Item {
     property bool _isLoading: true
     property string _errorText: ""
     property bool viewerOpen: false
+    property var missionController: null
     property var _viewer3DSettings: QGroundControl.settingsManager.viewer3DSettings
     property var _streamingMapTokenFact: _viewer3DSettings ? _viewer3DSettings.streamingProviderToken : null
+    property var _vehicleAltitudeBiasFact: _viewer3DSettings ? _viewer3DSettings.vehicleAltitudeBias : null
+    property var _missionVisualItems: missionController ? missionController.visualItems : null
+    property var _multiVehicleManager: QGroundControl.multiVehicleManager
+    property var _vehiclesModel: _multiVehicleManager ? _multiVehicleManager.vehicles : null
+    property var _activeVehicle: _multiVehicleManager ? _multiVehicleManager.activeVehicle : null
+    property var _activeVehicleHeadingFact: _activeVehicle && _activeVehicle.heading ? _activeVehicle.heading : null
+    property var _activeVehicleAltitudeAmslFact: _activeVehicle && _activeVehicle.altitudeAMSL ? _activeVehicle.altitudeAMSL : null
+    property var _activeVehicleAltitudeRelativeFact: _activeVehicle && _activeVehicle.altitudeRelative ? _activeVehicle.altitudeRelative : null
+    property bool _missionSyncPending: false
 
     function _stringValue(value) {
         if (value === undefined || value === null) {
@@ -19,6 +30,19 @@ Item {
         }
 
         return String(value);
+    }
+
+    function _numberValue(value, fallbackValue) {
+        const numericValue = Number(value);
+        if (!isFinite(numericValue)) {
+            return fallbackValue;
+        }
+        return numericValue;
+    }
+
+    function _finiteOrNaN(value) {
+        const numericValue = Number(value);
+        return isFinite(numericValue) ? numericValue : Number.NaN;
     }
 
     function _pushStreamingConfigToPage() {
@@ -60,6 +84,580 @@ Item {
         };
     }
 
+    function _vehicleKeyForVehicle(vehicle, indexHint) {
+        if (vehicle && isFinite(Number(vehicle.id))) {
+            return String(Number(vehicle.id));
+        }
+        if (isFinite(Number(indexHint))) {
+            return "idx-" + String(Number(indexHint));
+        }
+        return "unknown";
+    }
+
+    function _homeAltitudeAmslForVehicle(vehicle, vehicleMissionController) {
+        if (vehicle && vehicle.homePosition && vehicle.homePosition.isValid) {
+            return _finiteOrNaN(vehicle.homePosition.altitude);
+        }
+
+        if (vehicleMissionController &&
+                vehicleMissionController.plannedHomePosition &&
+                vehicleMissionController.plannedHomePosition.isValid) {
+            return _finiteOrNaN(vehicleMissionController.plannedHomePosition.altitude);
+        }
+
+        if (missionController && missionController.plannedHomePosition && missionController.plannedHomePosition.isValid) {
+            return _finiteOrNaN(missionController.plannedHomePosition.altitude);
+        }
+
+        return 0;
+    }
+
+    function _homeCoordinateForTakeoffForVehicle(vehicle, vehicleMissionController) {
+        if (vehicle && vehicle.homePosition && vehicle.homePosition.isValid) {
+            return vehicle.homePosition;
+        }
+
+        if (vehicleMissionController &&
+                vehicleMissionController.plannedHomePosition &&
+                vehicleMissionController.plannedHomePosition.isValid) {
+            return vehicleMissionController.plannedHomePosition;
+        }
+
+        if (missionController && missionController.plannedHomePosition && missionController.plannedHomePosition.isValid) {
+            return missionController.plannedHomePosition;
+        }
+
+        if (vehicle && vehicle.coordinate && vehicle.coordinate.isValid) {
+            return vehicle.coordinate;
+        }
+
+        return null;
+    }
+
+    function _vehicleStateFromVehicle(vehicle, vehicleMissionController, indexHint) {
+        if (!vehicle) {
+            return null;
+        }
+
+        const vehicleCoordinate = vehicle.coordinate;
+        if (!vehicleCoordinate || !vehicleCoordinate.isValid) {
+            return null;
+        }
+
+        const headingFact = vehicle.heading;
+        const headingValue = headingFact ? headingFact.value : Number.NaN;
+        const altitudeAmslFactValue = vehicle.altitudeAMSL ? vehicle.altitudeAMSL.rawValue : Number.NaN;
+        const altitudeRelativeFactValue = vehicle.altitudeRelative ? vehicle.altitudeRelative.rawValue : Number.NaN;
+        const coordinateAltitude = vehicleCoordinate ? vehicleCoordinate.altitude : Number.NaN;
+
+        const altitudeAmsl = isFinite(_numberValue(altitudeAmslFactValue, Number.NaN))
+            ? _numberValue(altitudeAmslFactValue, Number.NaN)
+            : _numberValue(coordinateAltitude, Number.NaN);
+
+        return {
+            id: _vehicleKeyForVehicle(vehicle, indexHint),
+            latitude: _numberValue(vehicleCoordinate.latitude, Number.NaN),
+            longitude: _numberValue(vehicleCoordinate.longitude, Number.NaN),
+            heading: _numberValue(headingValue, 0),
+            iconSource: _stringValue(vehicle.vehicleImageOpaque),
+            altitudeAmsl: altitudeAmsl,
+            altitudeRelative: _numberValue(altitudeRelativeFactValue, Number.NaN),
+            homeAltitudeAmsl: _homeAltitudeAmslForVehicle(vehicle, vehicleMissionController)
+        };
+    }
+
+    function _homeAltitudeAmsl() {
+        return _homeAltitudeAmslForVehicle(_activeVehicle, missionController);
+    }
+
+    function _vehicleStateFromActiveVehicle() {
+        return _vehicleStateFromVehicle(_activeVehicle, missionController, 0);
+    }
+
+    function _allVehicleStates() {
+        const states = [];
+        const repeaterCount = vehicleMissionControllersRepeater ? Number(vehicleMissionControllersRepeater.count) : 0;
+        if (isFinite(repeaterCount) && repeaterCount > 0) {
+            for (let i = 0; i < repeaterCount; i++) {
+                const controllerEntry = vehicleMissionControllersRepeater.itemAt(i);
+                if (!controllerEntry) {
+                    continue;
+                }
+
+                const vehicle = controllerEntry._vehicle
+                    ? controllerEntry._vehicle
+                    : (_vehiclesModel && _vehiclesModel.get ? _vehiclesModel.get(i) : null);
+                if (!vehicle) {
+                    continue;
+                }
+
+                const vehicleMissionController = controllerEntry._missionController;
+                const state = _vehicleStateFromVehicle(vehicle, vehicleMissionController, i);
+                if (!state ||
+                        !isFinite(state.latitude) ||
+                        !isFinite(state.longitude)) {
+                    continue;
+                }
+                states.push(state);
+            }
+            if (states.length > 0) {
+                return states;
+            }
+        }
+
+        const vehicles = _vehiclesModel;
+        if (!vehicles || !isFinite(Number(vehicles.count))) {
+            return states;
+        }
+
+        for (let i = 0; i < vehicles.count; i++) {
+            const vehicle = vehicles.get(i);
+            if (!vehicle) {
+                continue;
+            }
+
+            const state = _vehicleStateFromVehicle(vehicle, null, i);
+            if (!state ||
+                    !isFinite(state.latitude) ||
+                    !isFinite(state.longitude)) {
+                continue;
+            }
+            states.push(state);
+        }
+
+        return states;
+    }
+
+    function _altitudeModeToFrameType(altitudeMode) {
+        const mode = Number(altitudeMode);
+        if (!isFinite(mode)) {
+            return "AMSL";
+        }
+
+        if (mode === Number(QGroundControl.AltitudeModeAbsolute)) {
+            return "AMSL";
+        }
+        if (mode === Number(QGroundControl.AltitudeModeRelative)) {
+            return "RELATIVE";
+        }
+        if (mode === Number(QGroundControl.AltitudeModeTerrainFrame)) {
+            return "AGL";
+        }
+        if (mode === Number(QGroundControl.AltitudeModeCalcAboveTerrain)) {
+            return "AGL";
+        }
+
+        return "AMSL";
+    }
+
+    function _waypointAltitudeInfo(item, homeAmsl) {
+        const terrainAltitudeAmsl = _finiteOrNaN(item ? item.terrainAltitude : Number.NaN);
+        const amslEntryAltitude = _finiteOrNaN(item ? item.amslEntryAlt : Number.NaN);
+        const altitudeMode = _finiteOrNaN(item ? item.altitudeMode : Number.NaN);
+        const rawAltitude = _finiteOrNaN(item && item.altitude ? item.altitude.rawValue : Number.NaN);
+        const hasTerrain = isFinite(terrainAltitudeAmsl);
+        const safeHomeAmsl = isFinite(homeAmsl) ? homeAmsl : 0;
+
+        let frameType = _altitudeModeToFrameType(altitudeMode);
+        let altitudeAmsl = Number.NaN;
+        let validTerrain = hasTerrain;
+
+        // amslEntryAlt is QGC's authoritative altitude conversion for each VisualMissionItem.
+        // It already handles command-specific and mode-specific altitude semantics.
+        if (isFinite(amslEntryAltitude)) {
+            altitudeAmsl = amslEntryAltitude;
+        }
+
+        if (!isFinite(altitudeAmsl) && isFinite(altitudeMode) && isFinite(rawAltitude)) {
+            if (altitudeMode === Number(QGroundControl.AltitudeModeAbsolute)) {
+                altitudeAmsl = rawAltitude;
+            } else if (altitudeMode === Number(QGroundControl.AltitudeModeRelative)) {
+                altitudeAmsl = safeHomeAmsl + rawAltitude;
+            } else if (altitudeMode === Number(QGroundControl.AltitudeModeTerrainFrame)) {
+                if (hasTerrain) {
+                    altitudeAmsl = terrainAltitudeAmsl + rawAltitude;
+                } else {
+                    // Terrain is unavailable: keep rendering stable with a home-relative fallback.
+                    altitudeAmsl = safeHomeAmsl + rawAltitude;
+                    validTerrain = false;
+                }
+            } else if (altitudeMode === Number(QGroundControl.AltitudeModeCalcAboveTerrain)) {
+                // "Calc Above Terrain" stores AMSL in mission item param7 once terrain resolves.
+                // If we only have the UI fact value, treat it as an above-terrain input fallback.
+                if (hasTerrain) {
+                    altitudeAmsl = terrainAltitudeAmsl + rawAltitude;
+                } else {
+                    altitudeAmsl = safeHomeAmsl + rawAltitude;
+                    validTerrain = false;
+                }
+            }
+        }
+
+        if (!isFinite(altitudeAmsl) && isFinite(rawAltitude)) {
+            if (frameType === "AMSL") {
+                altitudeAmsl = rawAltitude;
+            } else {
+                altitudeAmsl = safeHomeAmsl + rawAltitude;
+                frameType = "RELATIVE";
+            }
+        }
+
+        return {
+            frameType: frameType,
+            inputAltitude: rawAltitude,
+            altitudeAmsl: altitudeAmsl,
+            groundAltitudeAmsl: hasTerrain ? terrainAltitudeAmsl : Number.NaN,
+            validTerrain: validTerrain
+        };
+    }
+
+    function _missionLabel(item, visualIndex) {
+        if (item && item.homePosition === true) {
+            return "H";
+        }
+
+        if (item && item.abbreviation !== undefined && item.abbreviation !== null && String(item.abbreviation).length > 0) {
+            return String(item.abbreviation);
+        }
+
+        if (item && isFinite(Number(item.sequenceNumber))) {
+            return String(Number(item.sequenceNumber));
+        }
+
+        return String(visualIndex + 1);
+    }
+
+    function _homeCoordinateForTakeoff() {
+        return _homeCoordinateForTakeoffForVehicle(_activeVehicle, missionController);
+    }
+
+    function _coordinateForMissionItem(item, homeCoordinate) {
+        if (!item) {
+            return null;
+        }
+
+        if (item.specifiesCoordinate === true && item.coordinate && item.coordinate.isValid) {
+            return item.coordinate;
+        }
+
+        // Some takeoff commands in QGC are altitude-only (no explicit lat/lon).
+        // Render them in 3D at home coordinate so takeoff climb is visible.
+        if (item.isTakeoffItem === true && homeCoordinate && homeCoordinate.isValid) {
+            return homeCoordinate;
+        }
+
+        return null;
+    }
+
+    function _directionArrowsFromModel(directionArrowsModel, altitudeBiasMeters) {
+        const arrows = [];
+        if (!directionArrowsModel || !isFinite(Number(directionArrowsModel.count))) {
+            return arrows;
+        }
+
+        for (let i = 0; i < directionArrowsModel.count; i++) {
+            const segment = directionArrowsModel.get(i);
+            if (!segment) {
+                continue;
+            }
+
+            const coord1 = segment.coordinate1;
+            const coord2 = segment.coordinate2;
+            if (!coord1 || !coord1.isValid || !coord2 || !coord2.isValid) {
+                continue;
+            }
+
+            const coord1Latitude = _finiteOrNaN(coord1.latitude);
+            const coord1Longitude = _finiteOrNaN(coord1.longitude);
+            const coord2Latitude = _finiteOrNaN(coord2.latitude);
+            const coord2Longitude = _finiteOrNaN(coord2.longitude);
+            if (!isFinite(coord1Latitude) ||
+                    !isFinite(coord1Longitude) ||
+                    !isFinite(coord2Latitude) ||
+                    !isFinite(coord2Longitude)) {
+                continue;
+            }
+
+            const coord1AmslAlt = _finiteOrNaN(segment.coord1AMSLAlt);
+            const coord2AmslAlt = _finiteOrNaN(segment.coord2AMSLAlt);
+            const bias = isFinite(altitudeBiasMeters) ? altitudeBiasMeters : 0;
+
+            arrows.push({
+                coord1Latitude: coord1Latitude,
+                coord1Longitude: coord1Longitude,
+                coord2Latitude: coord2Latitude,
+                coord2Longitude: coord2Longitude,
+                coord1AltitudeAmsl: isFinite(coord1AmslAlt) ? coord1AmslAlt + bias : Number.NaN,
+                coord2AltitudeAmsl: isFinite(coord2AmslAlt) ? coord2AmslAlt + bias : Number.NaN
+            });
+        }
+
+        return arrows;
+    }
+
+    function _coordinatesClose(lat1, lon1, lat2, lon2, toleranceDegrees) {
+        const tol = isFinite(Number(toleranceDegrees)) ? Math.max(0, Number(toleranceDegrees)) : 0.00001;
+        return Math.abs(Number(lat1) - Number(lat2)) <= tol &&
+            Math.abs(Number(lon1) - Number(lon2)) <= tol;
+    }
+
+    function _directionArrowExists(directionArrows, startLat, startLon, endLat, endLon) {
+        if (!directionArrows || !isFinite(Number(directionArrows.length))) {
+            return false;
+        }
+
+        for (let i = 0; i < directionArrows.length; i++) {
+            const arrow = directionArrows[i];
+            if (!arrow) {
+                continue;
+            }
+            const startMatches = _coordinatesClose(
+                arrow.coord1Latitude,
+                arrow.coord1Longitude,
+                startLat,
+                startLon,
+                0.00002
+            );
+            const endMatches = _coordinatesClose(
+                arrow.coord2Latitude,
+                arrow.coord2Longitude,
+                endLat,
+                endLon,
+                0.00002
+            );
+            if (startMatches && endMatches) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function _missionDataFromVisualItems(visualItems, homeAmsl, homeCoordinate, altitudeBiasMeters, vehicleId, directionArrowsModel) {
+        const waypoints = [];
+        const directionArrows = _directionArrowsFromModel(directionArrowsModel, altitudeBiasMeters);
+        const rtlCommand = 20; // MAV_CMD_NAV_RETURN_TO_LAUNCH
+        let foundRTL = false;
+        let linkEndToHome = false;
+        let lastRouteWaypoint = null;
+
+        if (!visualItems || !isFinite(Number(visualItems.count))) {
+            return {
+                vehicleId: _stringValue(vehicleId),
+                altitudeBiasMeters: isFinite(altitudeBiasMeters) ? altitudeBiasMeters : 0,
+                homeAltitudeAmsl: homeAmsl,
+                waypoints: waypoints,
+                directionArrows: directionArrows
+            };
+        }
+
+        for (let i = 0; i < visualItems.count; i++) {
+            const item = visualItems.get(i);
+            if (!item) {
+                continue;
+            }
+
+            if (item.isSimpleItem === true) {
+                const command = _finiteOrNaN(item.command);
+                if (isFinite(command) && command === rtlCommand) {
+                    linkEndToHome = true;
+                    foundRTL = true;
+                }
+            }
+
+            // Match 2D mission line behavior: stop route at RTL and then add one return segment to home.
+            if (foundRTL) {
+                break;
+            }
+
+            if (item.homePosition === true) {
+                // Do not include synthetic planned-home vertex in 3D mission route geometry.
+                // This prevents WP1/takeoff from being forced to ground altitude.
+                continue;
+            }
+
+            const coordinate = _coordinateForMissionItem(item, homeCoordinate);
+            if (!coordinate || coordinate.isValid !== true) {
+                continue;
+            }
+
+            const latitude = _finiteOrNaN(coordinate.latitude);
+            const longitude = _finiteOrNaN(coordinate.longitude);
+            if (!isFinite(latitude) || !isFinite(longitude)) {
+                continue;
+            }
+
+            const altitudeInfo = _waypointAltitudeInfo(item, homeAmsl);
+            if (!isFinite(altitudeInfo.altitudeAmsl)) {
+                continue;
+            }
+
+            waypoints.push({
+                visualIndex: i,
+                sequenceNumber: isFinite(Number(item.sequenceNumber)) ? Number(item.sequenceNumber) : i,
+                label: _missionLabel(item, i),
+                latitude: latitude,
+                longitude: longitude,
+                altitudeInputMeters: altitudeInfo.inputAltitude,
+                altitudeAmsl: altitudeInfo.altitudeAmsl,
+                altitudeAMSL_m: altitudeInfo.altitudeAmsl,
+                groundAltitudeAmsl: altitudeInfo.groundAltitudeAmsl,
+                groundAMSL_m: altitudeInfo.groundAltitudeAmsl,
+                frameType: altitudeInfo.frameType,
+                validTerrain: altitudeInfo.validTerrain
+            });
+            lastRouteWaypoint = waypoints[waypoints.length - 1];
+        }
+
+        if (linkEndToHome &&
+                lastRouteWaypoint &&
+                homeCoordinate &&
+                homeCoordinate.isValid === true) {
+            const homeLatitude = _finiteOrNaN(homeCoordinate.latitude);
+            const homeLongitude = _finiteOrNaN(homeCoordinate.longitude);
+            const homeGroundAmsl = _finiteOrNaN(homeCoordinate.altitude);
+            const returnAltitudeAmsl = isFinite(lastRouteWaypoint.altitudeAmsl)
+                ? lastRouteWaypoint.altitudeAmsl
+                : (isFinite(homeAmsl) ? homeAmsl : Number.NaN);
+
+            if (isFinite(homeLatitude) && isFinite(homeLongitude) && isFinite(returnAltitudeAmsl)) {
+                waypoints.push({
+                    visualIndex: visualItems.count,
+                    sequenceNumber: isFinite(lastRouteWaypoint.sequenceNumber) ? (lastRouteWaypoint.sequenceNumber + 1) : visualItems.count,
+                    label: "H",
+                    latitude: homeLatitude,
+                    longitude: homeLongitude,
+                    altitudeInputMeters: Number.NaN,
+                    altitudeAmsl: returnAltitudeAmsl,
+                    altitudeAMSL_m: returnAltitudeAmsl,
+                    groundAltitudeAmsl: homeGroundAmsl,
+                    groundAMSL_m: homeGroundAmsl,
+                    frameType: "AMSL",
+                    validTerrain: false,
+                    syntheticReturnHome: true
+                });
+
+                // 2D always shows direction guidance on the final route segment.
+                // Ensure 3D has the same arrow segment (last waypoint -> home) even if model data lags.
+                if (!_directionArrowExists(
+                            directionArrows,
+                            lastRouteWaypoint.latitude,
+                            lastRouteWaypoint.longitude,
+                            homeLatitude,
+                            homeLongitude)) {
+                    const bias = isFinite(altitudeBiasMeters) ? altitudeBiasMeters : 0;
+                    directionArrows.push({
+                        coord1Latitude: lastRouteWaypoint.latitude,
+                        coord1Longitude: lastRouteWaypoint.longitude,
+                        coord2Latitude: homeLatitude,
+                        coord2Longitude: homeLongitude,
+                        coord1AltitudeAmsl: isFinite(lastRouteWaypoint.altitudeAmsl)
+                            ? (lastRouteWaypoint.altitudeAmsl + bias)
+                            : Number.NaN,
+                        coord2AltitudeAmsl: returnAltitudeAmsl + bias
+                    });
+                }
+            }
+        }
+
+        return {
+            vehicleId: _stringValue(vehicleId),
+            altitudeBiasMeters: isFinite(altitudeBiasMeters) ? altitudeBiasMeters : 0,
+            homeAltitudeAmsl: homeAmsl,
+            waypoints: waypoints,
+            directionArrows: directionArrows
+        };
+    }
+
+    function _missionDataFromController(vehicle, vehicleMissionController, indexHint) {
+        const altitudeBiasMeters = _finiteOrNaN(_vehicleAltitudeBiasFact ? _vehicleAltitudeBiasFact.rawValue : 0);
+        const controllerToUse = vehicleMissionController ? vehicleMissionController : null;
+        const vehicleId = _vehicleKeyForVehicle(vehicle, indexHint);
+        if (!controllerToUse) {
+            return {
+                vehicleId: _stringValue(vehicleId),
+                altitudeBiasMeters: isFinite(altitudeBiasMeters) ? altitudeBiasMeters : 0,
+                homeAltitudeAmsl: _homeAltitudeAmslForVehicle(vehicle, missionController),
+                waypoints: [],
+                directionArrows: []
+            };
+        }
+
+        const visualItems = controllerToUse ? controllerToUse.visualItems : null;
+        const homeAmsl = _homeAltitudeAmslForVehicle(vehicle, controllerToUse);
+        const homeCoordinate = _homeCoordinateForTakeoffForVehicle(vehicle, controllerToUse);
+
+        return _missionDataFromVisualItems(
+            visualItems,
+            homeAmsl,
+            homeCoordinate,
+            altitudeBiasMeters,
+            vehicleId,
+            controllerToUse ? controllerToUse.directionArrows : null
+        );
+    }
+
+    function _allMissionData() {
+        const missions = [];
+        let hasAnyWaypoints = false;
+
+        const repeaterCount = vehicleMissionControllersRepeater ? Number(vehicleMissionControllersRepeater.count) : 0;
+        if (isFinite(repeaterCount) && repeaterCount > 0) {
+            for (let i = 0; i < repeaterCount; i++) {
+                const controllerEntry = vehicleMissionControllersRepeater.itemAt(i);
+                if (!controllerEntry) {
+                    continue;
+                }
+
+                const vehicle = controllerEntry._vehicle
+                    ? controllerEntry._vehicle
+                    : (_vehiclesModel && _vehiclesModel.get ? _vehiclesModel.get(i) : null);
+                if (!vehicle) {
+                    continue;
+                }
+
+                const vehicleMissionController = controllerEntry._missionController;
+                let missionData = _missionDataFromController(vehicle, vehicleMissionController, i);
+
+                // Fallback for active vehicle: if per-vehicle controller has not populated yet,
+                // use the already-available fly-view mission controller so 3D never stays blank.
+                if ((!missionData.waypoints || missionData.waypoints.length === 0) &&
+                        _activeVehicle &&
+                        vehicle === _activeVehicle &&
+                        missionController) {
+                    missionData = _missionDataFromVisualItems(
+                        _missionVisualItems,
+                        _homeAltitudeAmsl(),
+                        _homeCoordinateForTakeoff(),
+                        _finiteOrNaN(_vehicleAltitudeBiasFact ? _vehicleAltitudeBiasFact.rawValue : 0),
+                        _vehicleKeyForVehicle(vehicle, i),
+                        missionController ? missionController.directionArrows : null
+                    );
+                }
+
+                if (missionData && missionData.waypoints && missionData.waypoints.length > 0) {
+                    hasAnyWaypoints = true;
+                }
+                missions.push(missionData);
+            }
+            if (hasAnyWaypoints) {
+                return missions;
+            }
+        }
+
+        // Offline/no-vehicle fallback: continue rendering the root mission controller mission.
+        const fallbackMission = _missionDataFromVisualItems(
+            _missionVisualItems,
+            _homeAltitudeAmsl(),
+            _homeCoordinateForTakeoff(),
+            _finiteOrNaN(_vehicleAltitudeBiasFact ? _vehicleAltitudeBiasFact.rawValue : 0),
+            "offline",
+            missionController ? missionController.directionArrows : null
+        );
+        missions.push(fallbackMission);
+        return missions;
+    }
+
     function _pushMapViewToPage() {
         if (!webView || webView.loading) {
             return;
@@ -79,8 +677,93 @@ Item {
         webView.runJavaScript(script);
     }
 
+    function _pushVehicleStateToPage() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const vehicleStates = _allVehicleStates();
+        if (!vehicleStates || vehicleStates.length === 0) {
+            webView.runJavaScript(
+                "window.__qgcVehiclesState = [];" +
+                "window.__qgcVehicleState = null;" +
+                "if (typeof window.__qgcSetVehiclesState === 'function') {" +
+                "window.__qgcSetVehiclesState(window.__qgcVehiclesState);" +
+                "}" +
+                "if (typeof window.__qgcClearVehicleState === 'function') {" +
+                "window.__qgcClearVehicleState();" +
+                "}"
+            );
+            return;
+        }
+
+        const script =
+            "window.__qgcVehiclesState = " + JSON.stringify(vehicleStates) + ";" +
+            "window.__qgcVehicleState = window.__qgcVehiclesState[0] || null;" +
+            "if (typeof window.__qgcSetVehiclesState === 'function') {" +
+            "window.__qgcSetVehiclesState(window.__qgcVehiclesState);" +
+            "} else if (typeof window.__qgcSetVehicleState === 'function') {" +
+            "window.__qgcSetVehicleState(window.__qgcVehicleState);" +
+            "}";
+
+        webView.runJavaScript(script);
+    }
+
+    function _centerMapOnActiveVehicle() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const activeVehicleState = _vehicleStateFromActiveVehicle();
+        if (!activeVehicleState ||
+                !isFinite(Number(activeVehicleState.latitude)) ||
+                !isFinite(Number(activeVehicleState.longitude))) {
+            return;
+        }
+
+        const centerRequest = {
+            id: _stringValue(activeVehicleState.id),
+            latitude: Number(activeVehicleState.latitude),
+            longitude: Number(activeVehicleState.longitude)
+        };
+
+        const script =
+            "if (typeof window.__qgcCenterOnVehicle === 'function') {" +
+            "window.__qgcCenterOnVehicle(" + JSON.stringify(centerRequest) + ");" +
+            "}";
+        webView.runJavaScript(script);
+    }
+
+    function _pushMissionDataToPage() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const missionsData = _allMissionData();
+        const script =
+            "window.__qgcMissionsData = " + JSON.stringify(missionsData) + ";" +
+            "window.__qgcMissionData = window.__qgcMissionsData.length > 0 ? window.__qgcMissionsData[0] : null;" +
+            "if (typeof window.__qgcSetMissionsData === 'function') {" +
+            "window.__qgcSetMissionsData(window.__qgcMissionsData);" +
+            "} else if (typeof window.__qgcSetMissionData === 'function') {" +
+            "window.__qgcSetMissionData(window.__qgcMissionData);" +
+            "}";
+        webView.runJavaScript(script);
+    }
+
+    function _scheduleMissionSync() {
+        if (_missionSyncPending) {
+            return;
+        }
+
+        _missionSyncPending = true;
+        missionSyncTimer.restart();
+    }
+
     function syncFrom2DMapTo3D() {
         _pushMapViewToPage();
+        _pushVehicleStateToPage();
+        _scheduleMissionSync();
     }
 
     function activate() {
@@ -89,6 +772,8 @@ Item {
         }
 
         webView.forceActiveFocus();
+        _pushVehicleStateToPage();
+        _scheduleMissionSync();
         webView.runJavaScript(
             "if (typeof window.__qgcOnViewerActivated === 'function') {" +
             "window.__qgcOnViewerActivated();" +
@@ -169,6 +854,8 @@ Item {
                 root._isLoading = false;
                 root._pushStreamingConfigToPage();
                 root._pushMapViewToPage();
+                root._pushVehicleStateToPage();
+                root._scheduleMissionSync();
                 if (root.viewerOpen) {
                     root.activate();
                 }
@@ -186,8 +873,14 @@ Item {
 
     onVisibleChanged: {
         if (visible && viewerOpen) {
+            _pushVehicleStateToPage();
+            _scheduleMissionSync();
             activate();
         }
+    }
+
+    onMissionControllerChanged: {
+        _scheduleMissionSync();
     }
 
     Rectangle {
@@ -245,6 +938,332 @@ Item {
 
         function onValueChanged() {
             root._pushStreamingConfigToPage();
+        }
+    }
+
+    Timer {
+        id: vehicleStateUpdateTimer
+        interval: 120
+        repeat: true
+        running: root.viewerOpen && !root._isLoading && (root._errorText.length === 0)
+        onTriggered: root._pushVehicleStateToPage()
+    }
+
+    Timer {
+        id: missionSyncTimer
+        interval: 90
+        repeat: false
+        onTriggered: {
+            root._missionSyncPending = false;
+            root._pushMissionDataToPage();
+        }
+    }
+
+    Connections {
+        target: root._multiVehicleManager
+        ignoreUnknownSignals: true
+
+        function onActiveVehicleChanged() {
+            root._pushVehicleStateToPage();
+            root._centerMapOnActiveVehicle();
+            root._scheduleMissionSync();
+        }
+
+        function onActiveVehicleAvailableChanged() {
+            root._pushVehicleStateToPage();
+            root._scheduleMissionSync();
+        }
+
+        function onVehicleAdded() {
+            root._pushVehicleStateToPage();
+            root._scheduleMissionSync();
+        }
+
+        function onVehicleRemoved() {
+            root._pushVehicleStateToPage();
+            root._scheduleMissionSync();
+        }
+    }
+
+    Repeater {
+        id: vehicleMissionControllersRepeater
+        model: root._vehiclesModel
+        onItemAdded: function(_index, _item) {
+            root._pushVehicleStateToPage();
+            root._scheduleMissionSync();
+        }
+        onItemRemoved: function(_index, _item) {
+            root._pushVehicleStateToPage();
+            root._scheduleMissionSync();
+        }
+
+        Item {
+            width: 0
+            height: 0
+            visible: false
+
+            // Match FlyViewMap pattern: QmlObjectListModel delegates expose `object`.
+            property var _vehicle: (typeof object !== "undefined" && object !== null)
+                ? object
+                : ((typeof modelData !== "undefined") ? modelData : null)
+            property var _missionController: _planController ? _planController.missionController : null
+            property bool _controllerStarted: false
+            property string _boundVehicleKey: ""
+
+            function _vehicleBindingKey(vehicleValue) {
+                return root._vehicleKeyForVehicle(vehicleValue, index);
+            }
+
+            function _controllerNeedsRebind() {
+                if (!_vehicle || !_planController) {
+                    return true;
+                }
+
+                const managerVehicle = _planController.managerVehicle;
+                if (!managerVehicle) {
+                    return true;
+                }
+
+                return _vehicleBindingKey(managerVehicle) !== _vehicleBindingKey(_vehicle);
+            }
+
+            function _startVehicleControllerIfReady() {
+                if (!_vehicle || !_planController) {
+                    return;
+                }
+
+                if (!_controllerNeedsRebind() &&
+                        _controllerStarted &&
+                        _boundVehicleKey === _vehicleBindingKey(_vehicle)) {
+                    return;
+                }
+
+                _planController.startStaticActiveVehicle(_vehicle);
+                _controllerStarted = true;
+                _boundVehicleKey = _vehicleBindingKey(_vehicle);
+                root._scheduleMissionSync();
+            }
+
+            PlanMasterController {
+                id: _planController
+                Component.onCompleted: _startVehicleControllerIfReady()
+            }
+
+            Timer {
+                interval: 120
+                repeat: true
+                running: _controllerNeedsRebind()
+                onTriggered: _startVehicleControllerIfReady()
+            }
+
+            Connections {
+                target: _planController
+                ignoreUnknownSignals: true
+
+                function onManagerVehicleChanged() {
+                    root._scheduleMissionSync();
+                    _startVehicleControllerIfReady();
+                }
+            }
+
+            Connections {
+                target: _missionController
+                ignoreUnknownSignals: true
+
+                function onVisualItemsChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onPlannedHomePositionChanged() {
+                    root._scheduleMissionSync();
+                }
+            }
+
+            Repeater {
+                model: _missionController ? _missionController.visualItems : null
+
+                Item {
+                    width: 0
+                    height: 0
+                    visible: false
+
+                    property var _missionItem: (typeof object !== "undefined") ? object : null
+
+                    Connections {
+                        target: _missionItem
+                        ignoreUnknownSignals: true
+
+                        function onCoordinateChanged() {
+                            root._scheduleMissionSync();
+                        }
+
+                        function onAmslEntryAltChanged() {
+                            root._scheduleMissionSync();
+                        }
+
+                        function onTerrainAltitudeChanged() {
+                            root._scheduleMissionSync();
+                        }
+
+                        function onAltitudeModeChanged() {
+                            root._scheduleMissionSync();
+                        }
+
+                        function onSequenceNumberChanged() {
+                            root._scheduleMissionSync();
+                        }
+
+                        function onSpecifiesCoordinateChanged() {
+                            root._scheduleMissionSync();
+                        }
+                    }
+
+                    Connections {
+                        target: (_missionItem && _missionItem.altitude) ? _missionItem.altitude : null
+                        ignoreUnknownSignals: true
+
+                        function onRawValueChanged() {
+                            root._scheduleMissionSync();
+                        }
+
+                        function onValueChanged() {
+                            root._scheduleMissionSync();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: root._activeVehicle
+        ignoreUnknownSignals: true
+
+        function onCoordinateChanged() {
+            root._pushVehicleStateToPage();
+        }
+
+        function onVehicleImageOpaqueChanged() {
+            root._pushVehicleStateToPage();
+        }
+    }
+
+    Connections {
+        target: root._activeVehicleHeadingFact
+        ignoreUnknownSignals: true
+
+        function onValueChanged() {
+            root._pushVehicleStateToPage();
+        }
+
+        function onRawValueChanged() {
+            root._pushVehicleStateToPage();
+        }
+    }
+
+    Connections {
+        target: root._activeVehicleAltitudeAmslFact
+        ignoreUnknownSignals: true
+
+        function onValueChanged() {
+            root._pushVehicleStateToPage();
+        }
+
+        function onRawValueChanged() {
+            root._pushVehicleStateToPage();
+        }
+    }
+
+    Connections {
+        target: root._activeVehicleAltitudeRelativeFact
+        ignoreUnknownSignals: true
+
+        function onValueChanged() {
+            root._pushVehicleStateToPage();
+        }
+
+        function onRawValueChanged() {
+            root._pushVehicleStateToPage();
+        }
+    }
+
+    Connections {
+        target: root.missionController
+        ignoreUnknownSignals: true
+
+        function onVisualItemsChanged() {
+            root._scheduleMissionSync();
+        }
+
+        function onPlannedHomePositionChanged() {
+            root._scheduleMissionSync();
+        }
+    }
+
+    Connections {
+        target: root._vehicleAltitudeBiasFact
+        ignoreUnknownSignals: true
+
+        function onRawValueChanged() {
+            root._scheduleMissionSync();
+        }
+
+        function onValueChanged() {
+            root._scheduleMissionSync();
+        }
+    }
+
+    Repeater {
+        model: root._missionVisualItems
+
+        Item {
+            width: 0
+            height: 0
+            visible: false
+
+            property var _missionItem: (typeof object !== "undefined") ? object : null
+
+            Connections {
+                target: _missionItem
+                ignoreUnknownSignals: true
+
+                function onCoordinateChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onAmslEntryAltChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onTerrainAltitudeChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onAltitudeModeChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onSequenceNumberChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onSpecifiesCoordinateChanged() {
+                    root._scheduleMissionSync();
+                }
+            }
+
+            Connections {
+                target: (_missionItem && _missionItem.altitude) ? _missionItem.altitude : null
+                ignoreUnknownSignals: true
+
+                function onRawValueChanged() {
+                    root._scheduleMissionSync();
+                }
+
+                function onValueChanged() {
+                    root._scheduleMissionSync();
+                }
+            }
         }
     }
 

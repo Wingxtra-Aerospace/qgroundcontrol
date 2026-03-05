@@ -19,6 +19,7 @@ Item {
     property bool isOpen: false
     property Item pipView: null
     property Item pipState: _pipState
+    property var missionController: null
 
     // Existing setting: Fly View -> 3D View enabled
     property bool _viewer3DEnabled: QGroundControl.settingsManager.viewer3DSettings.enabled.rawValue
@@ -255,6 +256,13 @@ Item {
         target: streaming3DLoader.item
         property: "viewerOpen"
         value: isOpen
+        when: (streaming3DLoader.status === Loader.Ready)
+    }
+
+    Binding {
+        target: streaming3DLoader.item
+        property: "missionController"
+        value: viewer3DBody.missionController
         when: (streaming3DLoader.status === Loader.Ready)
     }
 

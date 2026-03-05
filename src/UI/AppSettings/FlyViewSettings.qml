@@ -41,6 +41,7 @@ SettingsPage {
     property bool   _streaming3DEnabled:                    QGroundControl.streaming3DEnabled
     property Fact   _viewer3DEnabled:                       _viewer3DSettings.enabled
     property Fact   _viewer3DStreamingMapToken:             _viewer3DSettings.streamingProviderToken
+    property Fact   _viewer3DVehicleAltitudeBias:           _viewer3DSettings.vehicleAltitudeBias
 
     QGCFileDialogController { id: fileController }
 
@@ -268,6 +269,14 @@ SettingsPage {
                 fact:               _viewer3DStreamingMapToken
                 enabled:            _viewer3DEnabled.rawValue
                 visible:            _viewer3DStreamingMapToken.visible
+            }
+
+            LabelledFactTextField {
+                Layout.fillWidth:   true
+                label:              qsTr("Vehicle Altitude Bias (m)")
+                fact:               _viewer3DVehicleAltitudeBias
+                enabled:            _viewer3DEnabled.rawValue
+                visible:            _viewer3DVehicleAltitudeBias.visible
             }
         }
     }

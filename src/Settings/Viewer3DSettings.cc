@@ -18,5 +18,6 @@ DECLARE_SETTINGGROUP(Viewer3D, "Viewer3D")
 
 DECLARE_SETTINGSFACT(Viewer3DSettings, enabled)
 DECLARE_SETTINGSFACT(Viewer3DSettings, streamingProviderToken)
+DECLARE_SETTINGSFACT(Viewer3DSettings, vehicleAltitudeBias)
 
 

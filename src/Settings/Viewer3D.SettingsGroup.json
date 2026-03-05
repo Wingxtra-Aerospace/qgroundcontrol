@@ -14,6 +14,12 @@
     "shortDesc":        "Mapbox access token for streamed 3D viewer.",
     "type":             "string",
     "default":          ""
+},
+{
+    "name":             "vehicleAltitudeBias",
+    "shortDesc":        "Altitude correction bias in meters for streamed 3D overlays.",
+    "type":             "double",
+    "default":          0
 }
 ]
 }

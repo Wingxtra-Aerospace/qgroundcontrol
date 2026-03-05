@@ -182,6 +182,7 @@ Item {
             anchors.fill:           parent
             z:                      _fullItemZorder + 1
             pipView:                _pipView
+            missionController:      _missionController
         }
     }
 }

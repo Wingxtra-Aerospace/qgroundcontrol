@@ -23,4 +23,5 @@ public:
 
     DEFINE_SETTINGFACT(enabled)
     DEFINE_SETTINGFACT(streamingProviderToken)
+    DEFINE_SETTINGFACT(vehicleAltitudeBias)
 };
