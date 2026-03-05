@@ -60,6 +60,7 @@ Item {
     property rect   _centerViewport:        Qt.rect(0, 0, width, height)
     property real   _rightPanelWidth:       ScreenTools.defaultFontPixelWidth * 30
     property var    _mapControl:            mapControl
+    property bool   _showVideoWidget:       false
 
     property real   _fullItemZorder:    0
     property real   _pipItemZorder:     QGroundControl.zOrderWidgets
@@ -117,6 +118,7 @@ Item {
             item1:                  viewer3DWindow.isOpen ? viewer3DWindow : mapControl
             item2:                  QGroundControl.videoManager.hasVideo ? videoControl : null
             show:                   QGroundControl.videoManager.hasVideo && !QGroundControl.videoManager.fullScreen &&
+                                        _showVideoWidget &&
                                         (videoControl.pipState.state === videoControl.pipState.pipState ||
                                          mapControl.pipState.state === mapControl.pipState.pipState ||
                                          viewer3DWindow.pipState.state === viewer3DWindow.pipState.pipState)
@@ -124,6 +126,41 @@ Item {
 
             property real leftEdgeBottomInset: visible ? width + anchors.margins : 0
             property real bottomEdgeLeftInset: visible ? height + anchors.margins : 0
+        }
+
+        Rectangle {
+            id:                     openVideoButton
+            width:                  ScreenTools.defaultFontPixelHeight * 3.0
+            height:                 width
+            radius:                 width * 0.5
+            color:                  Qt.rgba(0, 0, 0, 0.65)
+            border.width:           1
+            border.color:           "#66FFFFFF"
+            anchors.left:           parent.left
+            anchors.bottom:         parent.bottom
+            anchors.margins:        _toolsMargin
+            visible:                QGroundControl.videoManager.hasVideo &&
+                                    !QGroundControl.videoManager.fullScreen &&
+                                    !_showVideoWidget
+            z:                      QGroundControl.zOrderWidgets + 1
+
+            QGCColoredImage {
+                anchors.centerIn:       parent
+                width:                  parent.width * 0.56
+                height:                 width
+                sourceSize.height:      height
+                source:                 "/qmlimages/camera_video.svg"
+                fillMode:               Image.PreserveAspectFit
+                color:                  "white"
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    _showVideoWidget = true
+                    _pipView._setPipIsExpanded(true)
+                }
+            }
         }
 
         FlyViewWidgetLayer {
@@ -183,6 +220,27 @@ Item {
             z:                      _fullItemZorder + 1
             pipView:                _pipView
             missionController:      _missionController
+        }
+
+        Connections {
+            target: _pipView
+
+            function on_IsExpandedChanged() {
+                if (!QGroundControl.videoManager.hasVideo) {
+                    return
+                }
+                _showVideoWidget = _pipView._isExpanded
+            }
+        }
+
+        Connections {
+            target: QGroundControl.videoManager
+
+            function onHasVideoChanged() {
+                if (!QGroundControl.videoManager.hasVideo) {
+                    _showVideoWidget = false
+                }
+            }
         }
     }
 }
