@@ -32,7 +32,32 @@ Item {
     property var    _scaleLengthsMeters:    [5, 10, 25, 50, 100, 150, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000]
     property var    _scaleLengthsFeet:      [10, 25, 50, 100, 250, 500, 1000, 2000, 3000, 4000, 5280, 5280*2, 5280*5, 5280*10, 5280*25, 5280*50, 5280*100, 5280*250, 5280*500, 5280*1000]
     property bool   _zoomButtonsVisible:    zoomButtonsVisible && !ScreenTools.isMobile
-    property var    _color:                 mapControl.isSatelliteMap ? "white" : "black"
+    property bool   _mapSupportsScaleDistance: mapControl && typeof mapControl.toCoordinate === "function"
+    property bool   _mapSupportsAsyncScaleDistance: mapControl && typeof mapControl.getScaleLineMeters === "function"
+    property var    _color:                 mapControl && mapControl.isSatelliteMap === true ? "white" : "black"
+
+    function _changeZoom(zoomStep) {
+        if (!mapControl) {
+            return
+        }
+
+        const step = Number(zoomStep)
+        if (!isFinite(step) || step === 0) {
+            return
+        }
+
+        if (typeof mapControl.stepZoom === "function") {
+            mapControl.stepZoom(step)
+        } else if (mapControl.zoomLevel !== undefined) {
+            const zoom = Number(mapControl.zoomLevel)
+            if (!isFinite(zoom)) {
+                return
+            }
+            mapControl.zoomLevel = zoom + step
+        }
+
+        scaleTimer.restart()
+    }
 
     function formatDistanceMeters(meters) {
         var dist = Math.round(meters)
@@ -116,24 +141,55 @@ Item {
     }
 
     function calculateScale() {
-        if(mapControl) {
-            var scaleLinePixelLength = 100
-            var leftCoord  = mapControl.toCoordinate(Qt.point(0, scale.y), false /* clipToViewPort */)
-            var rightCoord = mapControl.toCoordinate(Qt.point(scaleLinePixelLength, scale.y), false /* clipToViewPort */)
-            var scaleLineMeters = Math.round(leftCoord.distanceTo(rightCoord))
-            if (QGroundControl.settingsManager.unitsSettings.horizontalDistanceUnits.value === UnitsSettings.HorizontalDistanceUnitsFeet) {
-                calculateFeetRatio(scaleLineMeters, scaleLinePixelLength)
-            } else {
-                calculateMetersRatio(scaleLineMeters, scaleLinePixelLength)
-            }
+        if (!mapControl) {
+            return
+        }
+
+        var scaleLinePixelLength = 100
+
+        if (_mapSupportsAsyncScaleDistance) {
+            mapControl.getScaleLineMeters(scaleLinePixelLength, scale.y, function(scaleLineMeters) {
+                const meters = Math.round(Number(scaleLineMeters))
+                if (!isFinite(meters) || meters <= 0) {
+                    return
+                }
+
+                if (QGroundControl.settingsManager.unitsSettings.horizontalDistanceUnits.value === UnitsSettings.HorizontalDistanceUnitsFeet) {
+                    calculateFeetRatio(meters, scaleLinePixelLength)
+                } else {
+                    calculateMetersRatio(meters, scaleLinePixelLength)
+                }
+            })
+            return
+        }
+
+        if (!_mapSupportsScaleDistance) {
+            return
+        }
+
+        var leftCoord  = mapControl.toCoordinate(Qt.point(0, scale.y), false /* clipToViewPort */)
+        var rightCoord = mapControl.toCoordinate(Qt.point(scaleLinePixelLength, scale.y), false /* clipToViewPort */)
+        var scaleLineMeters = Math.round(leftCoord.distanceTo(rightCoord))
+        if (QGroundControl.settingsManager.unitsSettings.horizontalDistanceUnits.value === UnitsSettings.HorizontalDistanceUnitsFeet) {
+            calculateFeetRatio(scaleLineMeters, scaleLinePixelLength)
+        } else {
+            calculateMetersRatio(scaleLineMeters, scaleLinePixelLength)
         }
     }
 
     Connections {
+        ignoreUnknownSignals: true
         target:             mapControl
         function onWidthChanged() {     scaleTimer.restart() }
         function onHeightChanged() {    scaleTimer.restart() }
         function onZoomLevelChanged() { scaleTimer.restart() }
+    }
+
+    onMapControlChanged:   scaleTimer.restart()
+    onVisibleChanged: {
+        if (visible) {
+            scaleTimer.restart()
+        }
     }
 
     Timer {
@@ -141,6 +197,14 @@ Item {
         interval:           100
         running:            false
         repeat:             false
+        onTriggered:        calculateScale()
+    }
+
+    Timer {
+        id:                 liveScaleTimer
+        interval:           220
+        running:            scale.visible && _mapSupportsAsyncScaleDistance
+        repeat:             true
         onTriggered:        calculateScale()
     }
 
@@ -208,7 +272,7 @@ Item {
         width:              height
         opacity:            0.75
         visible:            _zoomButtonsVisible
-        onClicked:          mapControl.zoomLevel += 0.5
+        onClicked:          _changeZoom(0.5)
     }
 
     QGCButton {
@@ -221,7 +285,7 @@ Item {
         width:              height
         opacity:            0.75
         visible:            _zoomButtonsVisible
-        onClicked:          mapControl.zoomLevel -= 0.5
+        onClicked:          _changeZoom(-0.5)
     }
 
     Component.onCompleted: {

@@ -35,7 +35,9 @@ Item {
     property var    parentToolInsets
     property var    totalToolInsets:        _totalToolInsets
     property var    mapControl
+    property var    mapControl3D
     property bool   isViewer3DOpen:         false
+    readonly property var _mapScaleControl: (isViewer3DOpen && mapControl3D) ? mapControl3D : mapControl
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property var    _planMasterController:  globals.planMasterControllerFlyView
@@ -207,9 +209,13 @@ Item {
         anchors.margins:    _toolsMargin
         anchors.left:       toolStrip.right
         anchors.top:        parent.top
-        mapControl:         _mapControl
+        mapControl:         _mapScaleControl
         buttonsOnLeft:      true
-        visible:            !ScreenTools.isTinyScreen && QGroundControl.corePlugin.options.flyView.showMapScale && !isViewer3DOpen && mapControl.pipState.state === mapControl.pipState.fullState
+        visible:            !ScreenTools.isTinyScreen &&
+                            QGroundControl.corePlugin.options.flyView.showMapScale &&
+                            _mapScaleControl &&
+                            _mapScaleControl.pipState &&
+                            _mapScaleControl.pipState.state === _mapScaleControl.pipState.fullState
 
         property real topEdgeCenterInset: visible ? y + height : 0
     }

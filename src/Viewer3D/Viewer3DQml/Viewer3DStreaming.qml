@@ -23,6 +23,7 @@ Item {
     property var _activeVehicleAltitudeAmslFact: _activeVehicle && _activeVehicle.altitudeAMSL ? _activeVehicle.altitudeAMSL : null
     property var _activeVehicleAltitudeRelativeFact: _activeVehicle && _activeVehicle.altitudeRelative ? _activeVehicle.altitudeRelative : null
     property bool _missionSyncPending: false
+    signal mapViewStatePolled(var mapViewState)
 
     function _stringValue(value) {
         if (value === undefined || value === null) {
@@ -766,6 +767,93 @@ Item {
         _scheduleMissionSync();
     }
 
+    function getScaleLineMeters(scaleLinePixelLength, yPixel, onDone) {
+        if (!webView || webView.loading) {
+            if (onDone) {
+                onDone(Number.NaN);
+            }
+            return false;
+        }
+
+        const pixelLength = Number(scaleLinePixelLength);
+        const pixelY = Number(yPixel);
+        if (!isFinite(pixelLength) || pixelLength <= 0 || !isFinite(pixelY)) {
+            if (onDone) {
+                onDone(Number.NaN);
+            }
+            return false;
+        }
+
+        const script =
+            "(function() {" +
+            "if (typeof window.__qgcGetScaleLineMeters !== 'function') { return null; }" +
+            "return window.__qgcGetScaleLineMeters(" + pixelLength.toFixed(4) + ", " + pixelY.toFixed(4) + ");" +
+            "})();";
+
+        webView.runJavaScript(script, function(result) {
+            const meters = Number(result);
+            if (onDone) {
+                onDone(isFinite(meters) ? meters : Number.NaN);
+            }
+        });
+        return true;
+    }
+
+    function setZoomLevel(zoomValue) {
+        if (!webView || webView.loading) {
+            return false;
+        }
+
+        const targetZoom = _clampZoom(zoomValue);
+        const script =
+            "(function() {" +
+            "var getMapViewState = (typeof window.__qgcGetStableMapViewState === 'function') ? window.__qgcGetStableMapViewState : window.__qgcGetMapViewState;" +
+            "if (typeof getMapViewState !== 'function' || typeof window.__qgcSetMapViewState !== 'function') { return false; }" +
+            "var currentState = getMapViewState();" +
+            "if (!currentState || !isFinite(Number(currentState.latitude)) || !isFinite(Number(currentState.longitude))) { return false; }" +
+            "return window.__qgcSetMapViewState({" +
+            "latitude: Number(currentState.latitude)," +
+            "longitude: Number(currentState.longitude)," +
+            "zoom: " + Number(targetZoom).toFixed(4) +
+            "});" +
+            "})();";
+
+        webView.runJavaScript(script);
+        return true;
+    }
+
+    function _pollCurrentMapViewState() {
+        if (!viewerOpen || !webView || webView.loading) {
+            return;
+        }
+
+        const script =
+            "(function() {" +
+            "if (typeof window.__qgcGetStableMapViewState === 'function') { return window.__qgcGetStableMapViewState(); }" +
+            "if (typeof window.__qgcGetMapViewState === 'function') { return window.__qgcGetMapViewState(); }" +
+            "return null;" +
+            "})();";
+
+        webView.runJavaScript(script, function(result) {
+            if (result === undefined || result === null) {
+                return;
+            }
+
+            const latitude = Number(result.latitude);
+            const longitude = Number(result.longitude);
+            const zoom = _clampZoom(Number(result.zoom));
+            if (!isFinite(latitude) || !isFinite(longitude) || !isFinite(zoom)) {
+                return;
+            }
+
+            root.mapViewStatePolled({
+                latitude: latitude,
+                longitude: longitude,
+                zoom: zoom
+            });
+        });
+    }
+
     function activate() {
         if (!webView) {
             return;
@@ -877,6 +965,14 @@ Item {
             _scheduleMissionSync();
             activate();
         }
+    }
+
+    Timer {
+        id: mapViewStatePollTimer
+        interval: 180
+        repeat: true
+        running: root.viewerOpen && !webView.loading && (root._errorText.length === 0)
+        onTriggered: root._pollCurrentMapViewState()
     }
 
     onMissionControllerChanged: {

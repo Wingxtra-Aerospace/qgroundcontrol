@@ -132,7 +132,7 @@ Item {
             id:                     openVideoButton
             width:                  ScreenTools.defaultFontPixelHeight * 3.0
             height:                 width
-            radius:                 width * 0.5
+            radius:                 ScreenTools.defaultFontPixelHeight * 0.35
             color:                  Qt.rgba(0, 0, 0, 0.65)
             border.width:           1
             border.color:           "#66FFFFFF"
@@ -141,8 +141,29 @@ Item {
             anchors.margins:        _toolsMargin
             visible:                QGroundControl.videoManager.hasVideo &&
                                     !QGroundControl.videoManager.fullScreen &&
-                                    !_showVideoWidget
+                                    (_iconShown || opacity > 0.01)
             z:                      QGroundControl.zOrderWidgets + 1
+            opacity:                _iconShown ? 1 : 0
+            scale:                  _iconShown ? 1 : 0.88
+            transformOrigin:        Item.Center
+
+            property bool _iconShown: QGroundControl.videoManager.hasVideo &&
+                                      !QGroundControl.videoManager.fullScreen &&
+                                      !_showVideoWidget
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: openVideoButton._iconShown ? 45 : 180
+                    easing.type: Easing.InOutQuad
+                }
+            }
+
+            Behavior on scale {
+                NumberAnimation {
+                    duration: openVideoButton._iconShown ? 45 : 180
+                    easing.type: Easing.OutCubic
+                }
+            }
 
             QGCColoredImage {
                 anchors.centerIn:       parent
@@ -156,6 +177,7 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
+                enabled: openVideoButton._iconShown
                 onClicked: {
                     _showVideoWidget = true
                     _pipView._setPipIsExpanded(true)
@@ -172,6 +194,7 @@ Item {
             z:                      _fullItemZorder + 2 // we need to add one extra layer for map 3d viewer (normally was 1)
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
+            mapControl3D:           viewer3DWindow
             visible:                !QGroundControl.videoManager.fullScreen
             utmspActTrigger:        utmspSendActTrigger
             isViewer3DOpen:         viewer3DWindow.isOpen

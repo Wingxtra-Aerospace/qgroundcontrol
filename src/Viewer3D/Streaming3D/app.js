@@ -2806,6 +2806,43 @@
         };
     }
 
+    function getScaleLineMeters(scaleLinePixelLength, yPixel) {
+        if (!map || !mapLoaded) {
+            return null;
+        }
+
+        const pixelLength = Number(scaleLinePixelLength);
+        const y = Number(yPixel);
+        if (!Number.isFinite(pixelLength) || pixelLength <= 0 || !Number.isFinite(y)) {
+            return null;
+        }
+
+        const canvas = map.getCanvas();
+        const canvasHeight = canvas && Number.isFinite(Number(canvas.height))
+            ? Number(canvas.height)
+            : Number.NaN;
+        const clampedY = Number.isFinite(canvasHeight) ? clampValue(y, 0, canvasHeight) : y;
+
+        const leftCoord = map.unproject([0, clampedY]);
+        const rightCoord = map.unproject([pixelLength, clampedY]);
+        if (!leftCoord || !rightCoord) {
+            return null;
+        }
+
+        const leftLat = Number(leftCoord.lat);
+        const leftLon = Number(leftCoord.lng);
+        const rightLat = Number(rightCoord.lat);
+        const rightLon = Number(rightCoord.lng);
+        if (!Number.isFinite(leftLat) ||
+                !Number.isFinite(leftLon) ||
+                !Number.isFinite(rightLat) ||
+                !Number.isFinite(rightLon)) {
+            return null;
+        }
+
+        return greatCircleDistanceMeters(leftLat, leftLon, rightLat, rightLon);
+    }
+
     function applyMapViewState(mapViewState) {
         const normalized = normalizeMapViewState(mapViewState);
         if (!normalized) {
@@ -2963,6 +3000,10 @@
 
     window.__qgcGetStableMapViewState = function () {
         return getCurrentMapViewState();
+    };
+
+    window.__qgcGetScaleLineMeters = function (scaleLinePixelLength, yPixel) {
+        return getScaleLineMeters(scaleLinePixelLength, yPixel);
     };
 
     window.__qgcConsumeMapViewStateIfInteracted = function () {

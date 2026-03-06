@@ -20,6 +20,10 @@ Item {
     property Item pipView: null
     property Item pipState: _pipState
     property var missionController: null
+    property bool isSatelliteMap: true
+    readonly property real minimumZoomLevel: 2.0
+    readonly property real maximumZoomLevel: 20.0
+    property real zoomLevel: _clampZoom(Number(QGroundControl.flightMapZoom))
 
     // Existing setting: Fly View -> 3D View enabled
     property bool _viewer3DEnabled: QGroundControl.settingsManager.viewer3DSettings.enabled.rawValue
@@ -44,6 +48,63 @@ Item {
         if (!active) {
             _streamingLoadError = ""
         }
+    }
+
+    function _clampZoom(zoomValue) {
+        const zoom = Number(zoomValue)
+        if (!isFinite(zoom)) {
+            return minimumZoomLevel
+        }
+        return Math.max(minimumZoomLevel, Math.min(maximumZoomLevel, zoom))
+    }
+
+    function stepZoom(zoomDelta) {
+        const delta = Number(zoomDelta)
+        if (!isFinite(delta) || delta === 0) {
+            return
+        }
+
+        const clampedZoom = _clampZoom(Number(zoomLevel) + delta)
+        if (Math.abs(clampedZoom - Number(zoomLevel)) < 1e-4) {
+            return
+        }
+
+        zoomLevel = clampedZoom
+    }
+
+    function _pushZoomToStreaming3D() {
+        if (!isOpen || _streaming3DEnabled !== true) {
+            return false
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.setZoomLevel === "function") {
+            streaming3DLoader.item.setZoomLevel(_clampZoom(zoomLevel))
+            return true
+        }
+
+        return false
+    }
+
+    function getScaleLineMeters(scaleLinePixelLength, yPixel, onDone) {
+        if (_streaming3DEnabled !== true) {
+            if (onDone) {
+                onDone(Number.NaN)
+            }
+            return false
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.getScaleLineMeters === "function") {
+            return streaming3DLoader.item.getScaleLineMeters(scaleLinePixelLength, yPixel, onDone)
+        }
+
+        if (onDone) {
+            onDone(Number.NaN)
+        }
+        return false
     }
 
     function _prewarmStreaming3D() {
@@ -259,11 +320,42 @@ Item {
         when: (streaming3DLoader.status === Loader.Ready)
     }
 
+    onZoomLevelChanged: {
+        const clampedZoom = _clampZoom(zoomLevel)
+        if (Math.abs(Number(zoomLevel) - clampedZoom) > 1e-4) {
+            zoomLevel = clampedZoom
+            return
+        }
+
+        if (Math.abs(Number(QGroundControl.flightMapZoom) - clampedZoom) > 1e-4) {
+            QGroundControl.flightMapZoom = clampedZoom
+        }
+
+        _pushZoomToStreaming3D()
+    }
+
     Binding {
         target: streaming3DLoader.item
         property: "missionController"
         value: viewer3DBody.missionController
         when: (streaming3DLoader.status === Loader.Ready)
+    }
+
+    Connections {
+        target: streaming3DLoader.item
+        enabled: (streaming3DLoader.status === Loader.Ready)
+        ignoreUnknownSignals: true
+
+        function onMapViewStatePolled(mapViewState) {
+            if (!mapViewState) {
+                return
+            }
+
+            const polledZoom = viewer3DBody._clampZoom(Number(mapViewState.zoom))
+            if (Math.abs(Number(viewer3DBody.zoomLevel) - polledZoom) > 1e-4) {
+                viewer3DBody.zoomLevel = polledZoom
+            }
+        }
     }
 
     Connections {
@@ -275,6 +367,10 @@ Item {
         }
 
         function onFlightMapZoomChanged() {
+            const currentZoom = viewer3DBody._clampZoom(Number(QGroundControl.flightMapZoom))
+            if (Math.abs(Number(viewer3DBody.zoomLevel) - currentZoom) > 1e-4) {
+                viewer3DBody.zoomLevel = currentZoom
+            }
             viewer3DBody._markStreaming2DMapDirty()
         }
     }

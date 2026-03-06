@@ -28,6 +28,11 @@ Rectangle {
     property var    _activeVehicle:     QGroundControl.multiVehicleManager.activeVehicle
     property bool   _communicationLost: _activeVehicle ? _activeVehicle.vehicleLinkManager.communicationLost : false
     property color  _mainStatusBGColor: qgcPal.brandingPurple
+    property string _dateTimeText:      ""
+
+    function _updateDateTimeText() {
+        _dateTimeText = Qt.formatDateTime(new Date(), "ddd, dd MMM yyyy  HH:mm:ss")
+    }
 
     function dropMainStatusIndicatorTool() {
         mainStatusIndicator.dropMainStatusIndicator();
@@ -92,7 +97,7 @@ Rectangle {
         anchors.bottomMargin:   1
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
-        anchors.right:          parent.right
+        anchors.right:          dateTimeContainer.left
         contentWidth:           toolIndicators.width
         flickableDirection:     Flickable.HorizontalFlick
 
@@ -102,10 +107,12 @@ Rectangle {
     //-------------------------------------------------------------------------
     //-- Branding Logo
     Image {
+        id:                     brandImage
         anchors.right:          parent.right
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
         anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.66
+        anchors.rightMargin:    dateTimeContainer.width + (ScreenTools.defaultFontPixelWidth * 0.5)
         visible:                _activeVehicle && !_communicationLost && _activeBrandImage.length > 0 && x > (toolsFlickable.x + toolsFlickable.contentWidth + ScreenTools.defaultFontPixelWidth)
         fillMode:               Image.PreserveAspectFit
         source:                 _activeBrandImage
@@ -153,6 +160,40 @@ Rectangle {
             }
         }
     }
+
+    Rectangle {
+        id:                     dateTimeContainer
+        anchors.right:          parent.right
+        anchors.top:            parent.top
+        anchors.bottom:         parent.bottom
+        anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.42
+        radius:                 ScreenTools.defaultFontPixelHeight * 0.2
+        color:                  Qt.rgba(0, 0, 0, 0.25)
+        border.width:           qgcPal.globalTheme === QGCPalette.Light ? 1 : 0
+        border.color:           Qt.rgba(1, 1, 1, 0.2)
+        width:                  dateTimeLabel.implicitWidth + (ScreenTools.defaultFontPixelWidth * 1.8)
+        visible:                _dateTimeText.length > 0
+
+        QGCLabel {
+            id:                         dateTimeLabel
+            anchors.centerIn:           parent
+            text:                       _dateTimeText
+            font.pointSize:             ScreenTools.defaultFontPointSize
+            font.family:                ScreenTools.normalFontFamily
+            color:                      qgcPal.buttonText
+            verticalAlignment:          Text.AlignVCenter
+        }
+    }
+
+    Timer {
+        id:             dateTimeTimer
+        interval:       1000
+        running:        true
+        repeat:         true
+        onTriggered:    _updateDateTimeText()
+    }
+
+    Component.onCompleted: _updateDateTimeText()
 
     // Small parameter download progress bar
     Rectangle {
