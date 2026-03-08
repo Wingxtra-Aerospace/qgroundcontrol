@@ -30,14 +30,18 @@ RowLayout {
     property bool   _healthAndArmingChecksSupported: _activeVehicle ? _activeVehicle.healthAndArmingCheckReport.supported : false
 
     function dropMainStatusIndicator() {
-        let overallStatusComponent = _activeVehicle ? overallStatusIndicatorPage : overallStatusOfflineIndicatorPage
-        mainWindow.showIndicatorDrawer(overallStatusComponent, control)
+        if (_activeVehicle) {
+            // Active vehicle status now lives in the right-side notification drawer.
+            mainWindow.toggleNotificationCenter()
+        } else {
+            mainWindow.showIndicatorDrawer(overallStatusOfflineIndicatorPage, control)
+        }
     }
 
     QGCLabel {
         id:                 mainStatusLabel
         Layout.fillHeight:  true
-        Layout.preferredWidth: contentWidth + vehicleMessagesIcon.width + control.spacing
+        Layout.preferredWidth: contentWidth
         verticalAlignment:  Text.AlignVCenter
         text:               mainStatusText()
         font.pointSize:     ScreenTools.largeFontPointSize
@@ -112,31 +116,6 @@ RowLayout {
             } else {
                 _mainStatusBGColor = qgcPal.brandingPurple
                 return mainStatusLabel._disconnectedText
-            }
-        }
-
-        QGCColoredImage {
-            id:                     vehicleMessagesIcon
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right:          parent.right
-            width:                  ScreenTools.defaultFontPixelWidth * 2
-            height:                 width
-            source:                 "/res/VehicleMessages.png"
-            color:                  getIconColor()
-            sourceSize.width:       width
-            fillMode:               Image.PreserveAspectFit
-            //visible:                _activeVehicle && _activeVehicle.messageCount > 0// FIXME: Is messageCount check needed?
-
-            function getIconColor() {
-                let iconColor = qgcPal.text
-                if (_activeVehicle) {
-                    if (_activeVehicle.messageTypeWarning) {
-                        iconColor = qgcPal.colorOrange
-                    } else if (_activeVehicle.messageTypeError) {
-                        iconColor = qgcPal.colorRed
-                    }
-                }
-                return iconColor
             }
         }
 
