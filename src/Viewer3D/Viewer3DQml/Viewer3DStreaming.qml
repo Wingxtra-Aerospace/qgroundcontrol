@@ -23,6 +23,18 @@ Item {
     property var _activeVehicleAltitudeAmslFact: _activeVehicle && _activeVehicle.altitudeAMSL ? _activeVehicle.altitudeAMSL : null
     property var _activeVehicleAltitudeRelativeFact: _activeVehicle && _activeVehicle.altitudeRelative ? _activeVehicle.altitudeRelative : null
     property bool _missionSyncPending: false
+    property bool followVehicleEnabled: true
+    property bool declutterEnabled: false
+    property var _vehicleIconColorPalette: [
+        "#F96442", // warm red-orange
+        "#3CC1FE", // sky blue
+        "#64DF72", // green
+        "#FCC747", // amber
+        "#C282FA", // violet
+        "#26E0C9", // aqua
+        "#FB86C3", // pink
+        "#9CDF40"  // lime
+    ]
     signal mapViewStatePolled(var mapViewState)
 
     function _stringValue(value) {
@@ -95,6 +107,20 @@ Item {
         return "unknown";
     }
 
+    function _vehicleIconColorForId(vehicleId) {
+        const key = String(vehicleId === undefined || vehicleId === null ? "active" : vehicleId)
+        let hash = 0
+        for (let i = 0; i < key.length; i++) {
+            hash = ((hash * 31) + key.charCodeAt(i)) >>> 0
+        }
+
+        const palette = _vehicleIconColorPalette
+        if (!palette || palette.length === 0) {
+            return "#FFFFFF"
+        }
+        return palette[hash % palette.length]
+    }
+
     function _homeAltitudeAmslForVehicle(vehicle, vehicleMissionController) {
         if (vehicle && vehicle.homePosition && vehicle.homePosition.isValid) {
             return _finiteOrNaN(vehicle.homePosition.altitude);
@@ -155,12 +181,14 @@ Item {
             ? _numberValue(altitudeAmslFactValue, Number.NaN)
             : _numberValue(coordinateAltitude, Number.NaN);
 
+        const vehicleKey = _vehicleKeyForVehicle(vehicle, indexHint)
         return {
-            id: _vehicleKeyForVehicle(vehicle, indexHint),
+            id: vehicleKey,
             latitude: _numberValue(vehicleCoordinate.latitude, Number.NaN),
             longitude: _numberValue(vehicleCoordinate.longitude, Number.NaN),
             heading: _numberValue(headingValue, 0),
-            iconSource: _stringValue(vehicle.vehicleImageOpaque),
+            iconSource: "/qmlimages/vehicleArrowOpaque.svg",
+            iconColor: _vehicleIconColorForId(vehicleKey),
             altitudeAmsl: altitudeAmsl,
             altitudeRelative: _numberValue(altitudeRelativeFactValue, Number.NaN),
             homeAltitudeAmsl: _homeAltitudeAmslForVehicle(vehicle, vehicleMissionController)
@@ -752,6 +780,37 @@ Item {
         webView.runJavaScript(script);
     }
 
+    function _pushFollowStateToPage() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const followEnabled = followVehicleEnabled === true;
+        const script =
+            "if (typeof window.__qgcSetFollowVehicleEnabled === 'function') {" +
+            "window.__qgcSetFollowVehicleEnabled(" + (followEnabled ? "true" : "false") + ");" +
+            "}";
+        webView.runJavaScript(script);
+    }
+
+    function _pushDeclutterStateToPage() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const declutterState = declutterEnabled === true;
+        const script =
+            "if (typeof window.__qgcSetDeclutterEnabled === 'function') {" +
+            "window.__qgcSetDeclutterEnabled(" + (declutterState ? "true" : "false") + ");" +
+            "}";
+        webView.runJavaScript(script);
+    }
+
+    function _pushViewControlStateToPage() {
+        _pushFollowStateToPage();
+        _pushDeclutterStateToPage();
+    }
+
     function _scheduleMissionSync() {
         if (_missionSyncPending) {
             return;
@@ -869,6 +928,21 @@ Item {
         );
     }
 
+    function setFollowVehicleEnabled(enabled) {
+        followVehicleEnabled = (enabled === true);
+        return true;
+    }
+
+    function setDeclutterEnabled(enabled) {
+        declutterEnabled = (enabled === true);
+        return true;
+    }
+
+    function centerOnActiveVehicle() {
+        _centerMapOnActiveVehicle();
+        return true;
+    }
+
     function syncFrom3DTo2DMap(onDone) {
         if (!webView || webView.loading) {
             if (onDone) {
@@ -942,6 +1016,7 @@ Item {
                 root._isLoading = false;
                 root._pushStreamingConfigToPage();
                 root._pushMapViewToPage();
+                root._pushViewControlStateToPage();
                 root._pushVehicleStateToPage();
                 root._scheduleMissionSync();
                 if (root.viewerOpen) {
@@ -961,10 +1036,22 @@ Item {
 
     onVisibleChanged: {
         if (visible && viewerOpen) {
+            _pushViewControlStateToPage();
             _pushVehicleStateToPage();
             _scheduleMissionSync();
             activate();
         }
+    }
+
+    onFollowVehicleEnabledChanged: {
+        _pushFollowStateToPage();
+        if (followVehicleEnabled) {
+            _centerMapOnActiveVehicle();
+        }
+    }
+
+    onDeclutterEnabledChanged: {
+        _pushDeclutterStateToPage();
     }
 
     Timer {

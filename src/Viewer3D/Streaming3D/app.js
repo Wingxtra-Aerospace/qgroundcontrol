@@ -51,6 +51,10 @@
     let pendingVehicleState = null;
     let pendingMissionData = null;
     let pendingCenterOnVehicleRequest = null;
+    let followVehicleEnabled = true;
+    let followVehicleId = "";
+    let followTrackingSuppressUntilMs = 0;
+    let declutterEnabled = false;
     let defaultMapViewState = {
         latitude: 0.0,
         longitude: 0.0,
@@ -67,6 +71,7 @@
     let missionDebugMarkers = [];
     let missionDirectionMarkers = [];
     let vehicleTrailHistories = new Map();
+    let mapDeclutterLayerVisibilityCache = new Map();
 
     const MIN_MAP_ZOOM = 2.0;
     const MAX_MAP_ZOOM = 20.0;
@@ -75,6 +80,7 @@
     const DEFAULT_STYLE_URL = "mapbox://styles/mapbox/standard-satellite";
     const WHEEL_ZOOM_RATE = 1 / 1500;
     const TRACKPAD_ZOOM_RATE = 1 / 260;
+    const FOLLOW_USER_PAN_HOLDOFF_MS = 10000;
     const PAN_MAX_SPEED = 760;
     const PAN_DECELERATION = 9800;
     const ROTATE_MAX_SPEED = 210;
@@ -90,6 +96,7 @@
     const BUILDING_GROWTH_CURVE = 1.6;
     const MISSING_TOKEN_MESSAGE = "Mapbox token is required for streamed 3D mode.";
     const DEFAULT_VEHICLE_ICON_SOURCE = "/qmlimages/vehicleArrowOpaque.svg";
+    const DEFAULT_VEHICLE_ICON_COLOR = "#FFFFFF";
     const VEHICLE_MARKER_SIZE_PX = 56;
     const VEHICLE_ALTITUDE_MISMATCH_TOLERANCE_METERS = 20.0;
     const MISSION_3D_LAYER_ID = "qgc-mission-3d";
@@ -124,6 +131,16 @@
         [0.149, 0.878, 0.788, 0.95], // aqua
         [0.984, 0.525, 0.765, 0.95], // pink
         [0.612, 0.875, 0.251, 0.95]  // lime
+    ];
+    const VEHICLE_ICON_COLOR_PALETTE = [
+        "#F96442", // warm red-orange
+        "#3CC1FE", // sky blue
+        "#64DF72", // green
+        "#FCC747", // amber
+        "#C282FA", // violet
+        "#26E0C9", // aqua
+        "#FB86C3", // pink
+        "#9CDF40"  // lime
     ];
     const EARTH_CIRCUMFERENCE_METERS = 40075016.686;
     const GROUND_ATTACH_EPSILON_METERS = 0.12;
@@ -390,6 +407,30 @@
         return "/" + normalizedPath;
     }
 
+    function vehicleColorHash(vehicleId) {
+        const key = String(vehicleId || "active");
+        let hash = 0;
+        for (let i = 0; i < key.length; i++) {
+            hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
+        }
+        return hash >>> 0;
+    }
+
+    function vehicleIconColorForId(vehicleId) {
+        const palette = VEHICLE_ICON_COLOR_PALETTE;
+        if (!Array.isArray(palette) || palette.length === 0) {
+            return DEFAULT_VEHICLE_ICON_COLOR;
+        }
+        return palette[vehicleColorHash(vehicleId) % palette.length];
+    }
+
+    function normalizeVehicleIconColor(iconColor, vehicleId) {
+        const normalizedColor = iconColor !== undefined && iconColor !== null
+            ? String(iconColor).trim()
+            : "";
+        return normalizedColor || vehicleIconColorForId(vehicleId);
+    }
+
     function normalizeVehicleState(vehicleState) {
         if (!vehicleState) {
             return null;
@@ -414,6 +455,7 @@
             longitude: normalizeLongitude(longitude),
             heading: normalizeHeadingDegrees(vehicleState.heading),
             iconSource: toWebResourceUrl(vehicleState.iconSource),
+            iconColor: normalizeVehicleIconColor(vehicleState.iconColor, vehicleId),
             altitudeAmsl: Number.isFinite(altitudeAmsl) ? altitudeAmsl : Number.NaN,
             altitudeRelative: Number.isFinite(altitudeRelative) ? altitudeRelative : Number.NaN,
             homeAltitudeAmsl: Number.isFinite(homeAltitudeAmsl) ? homeAltitudeAmsl : Number.NaN
@@ -444,7 +486,8 @@
             return {
                 id: String(centerRequest),
                 latitude: Number.NaN,
-                longitude: Number.NaN
+                longitude: Number.NaN,
+                animate: true
             };
         }
 
@@ -453,11 +496,13 @@
             : "";
         const latitude = Number(centerRequest.latitude);
         const longitude = Number(centerRequest.longitude);
+        const animate = centerRequest.animate === false ? false : true;
 
         return {
             id: id,
             latitude: Number.isFinite(latitude) ? clampLatitude(latitude) : Number.NaN,
-            longitude: Number.isFinite(longitude) ? normalizeLongitude(longitude) : Number.NaN
+            longitude: Number.isFinite(longitude) ? normalizeLongitude(longitude) : Number.NaN,
+            animate: animate
         };
     }
 
@@ -538,12 +583,14 @@
 
         let focusLatitude = normalizedRequest.latitude;
         let focusLongitude = normalizedRequest.longitude;
+        let targetVehicleId = normalizedRequest.id ? String(normalizedRequest.id) : "";
 
         if (normalizedRequest.id) {
             const matchedState = findVehicleStateById(normalizedStates, normalizedRequest.id);
             if (matchedState) {
                 focusLatitude = matchedState.latitude;
                 focusLongitude = matchedState.longitude;
+                targetVehicleId = matchedState.id ? String(matchedState.id) : targetVehicleId;
             }
         }
 
@@ -552,6 +599,9 @@
             if (fallbackState) {
                 focusLatitude = fallbackState.latitude;
                 focusLongitude = fallbackState.longitude;
+                if (!targetVehicleId && fallbackState.id) {
+                    targetVehicleId = String(fallbackState.id);
+                }
             }
         }
 
@@ -559,9 +609,16 @@
             return false;
         }
 
-        const centered = centerMapOnCoordinate(focusLatitude, focusLongitude, true);
+        const centered = centerMapOnCoordinate(
+            focusLatitude,
+            focusLongitude,
+            normalizedRequest.animate === true
+        );
         if (centered) {
             pendingCenterOnVehicleRequest = null;
+            if (targetVehicleId) {
+                followVehicleId = targetVehicleId;
+            }
         }
         return centered;
     }
@@ -925,6 +982,86 @@
         missionDirectionMarkers = [];
     }
 
+    function setMarkerCollectionVisibility(markerCollection, visible) {
+        if (!Array.isArray(markerCollection)) {
+            return;
+        }
+
+        const displayValue = visible ? "" : "none";
+        for (const marker of markerCollection) {
+            if (!marker || typeof marker.getElement !== "function") {
+                continue;
+            }
+            const markerElement = marker.getElement();
+            if (!markerElement) {
+                continue;
+            }
+            markerElement.style.display = displayValue;
+        }
+    }
+
+    function shouldDeclutterMapLayer(layer) {
+        if (!layer || !layer.id) {
+            return false;
+        }
+
+        if (layer.id === MISSION_3D_LAYER_ID) {
+            return false;
+        }
+
+        // In streamed 3D, declutter primarily means removing map label/icon noise.
+        return layer.type === "symbol";
+    }
+
+    function applyBaseMapDeclutterState() {
+        if (!map || !mapLoaded || typeof map.getStyle !== "function") {
+            return;
+        }
+
+        const style = map.getStyle();
+        if (!style || !Array.isArray(style.layers)) {
+            return;
+        }
+
+        for (const layer of style.layers) {
+            if (!shouldDeclutterMapLayer(layer)) {
+                continue;
+            }
+
+            const layerId = layer.id;
+            if (!mapDeclutterLayerVisibilityCache.has(layerId)) {
+                let initialVisibility = "visible";
+                try {
+                    const currentVisibility = map.getLayoutProperty(layerId, "visibility");
+                    initialVisibility = currentVisibility ? String(currentVisibility) : "visible";
+                } catch (error) {
+                    initialVisibility = "visible";
+                }
+                mapDeclutterLayerVisibilityCache.set(layerId, initialVisibility);
+            }
+
+            const restoredVisibility = mapDeclutterLayerVisibilityCache.get(layerId) || "visible";
+            const targetVisibility = declutterEnabled ? "none" : restoredVisibility;
+            try {
+                if (map.getLayoutProperty(layerId, "visibility") !== targetVisibility) {
+                    map.setLayoutProperty(layerId, "visibility", targetVisibility);
+                }
+            } catch (error) {
+                // Ignore layers that reject runtime visibility changes.
+            }
+        }
+    }
+
+    function applyDeclutterState() {
+        const showMissionOverlays = !declutterEnabled;
+        setMarkerCollectionVisibility(missionDebugMarkers, showMissionOverlays);
+        setMarkerCollectionVisibility(missionDirectionMarkers, showMissionOverlays);
+        applyBaseMapDeclutterState();
+        if (map && mapLoaded) {
+            map.triggerRepaint();
+        }
+    }
+
     function updateMissionDebugLayer(debugLabels) {
         if (!map || !mapLoaded || !window.mapboxgl) {
             return;
@@ -958,6 +1095,8 @@
             marker.addTo(map);
             missionDebugMarkers.push(marker);
         }
+
+        applyDeclutterState();
     }
 
     function updateMissionDirectionLayer(directionArrows) {
@@ -997,6 +1136,8 @@
             marker.addTo(map);
             missionDirectionMarkers.push(marker);
         }
+
+        applyDeclutterState();
     }
 
     function removeMissionDebugLayer() {
@@ -1251,36 +1392,59 @@
     }
 
     function createVehicleMarkerElement(vehicleId) {
-        const markerElement = document.createElement("img");
+        const markerElement = document.createElement("div");
         markerElement.className = "qgc-vehicle-marker";
-        markerElement.alt = "Vehicle " + String(vehicleId);
-        markerElement.draggable = false;
+        markerElement.dataset.vehicleId = String(vehicleId || "active");
         markerElement.style.width = VEHICLE_MARKER_SIZE_PX + "px";
         markerElement.style.height = VEHICLE_MARKER_SIZE_PX + "px";
         markerElement.style.pointerEvents = "none";
         markerElement.style.userSelect = "none";
         markerElement.style.transformOrigin = "50% 50%";
-
-        markerElement.addEventListener("error", function () {
-            if (markerElement.dataset.fallbackApplied === "true") {
-                return;
-            }
-            markerElement.dataset.fallbackApplied = "true";
-            markerElement.setAttribute("src", DEFAULT_VEHICLE_ICON_SOURCE);
-        });
+        markerElement.style.backgroundRepeat = "no-repeat";
+        markerElement.style.backgroundPosition = "center";
+        markerElement.style.backgroundSize = "contain";
 
         return markerElement;
     }
 
-    function updateVehicleMarkerIcon(markerElement, iconSource) {
+    function updateVehicleMarkerIcon(markerElement, iconSource, iconColor) {
         if (!markerElement) {
             return;
         }
 
         const resolvedIconSource = toWebResourceUrl(iconSource);
-        if (markerElement.getAttribute("src") !== resolvedIconSource) {
-            markerElement.dataset.fallbackApplied = "false";
-            markerElement.setAttribute("src", resolvedIconSource);
+        const vehicleId = markerElement.dataset && markerElement.dataset.vehicleId
+            ? markerElement.dataset.vehicleId
+            : "active";
+        const resolvedIconColor = normalizeVehicleIconColor(iconColor, vehicleId);
+        const urlValue = "url(\"" + resolvedIconSource.replace(/"/g, "\\\"") + "\")";
+        const supportsMaskImage =
+            markerElement.style && (
+                ("maskImage" in markerElement.style) ||
+                ("webkitMaskImage" in markerElement.style)
+            );
+
+        if (supportsMaskImage) {
+            if (markerElement.style.maskImage !== urlValue) {
+                markerElement.style.maskImage = urlValue;
+                markerElement.style.webkitMaskImage = urlValue;
+                markerElement.style.maskRepeat = "no-repeat";
+                markerElement.style.webkitMaskRepeat = "no-repeat";
+                markerElement.style.maskPosition = "center";
+                markerElement.style.webkitMaskPosition = "center";
+                markerElement.style.maskSize = "contain";
+                markerElement.style.webkitMaskSize = "contain";
+            }
+            if (markerElement.style.backgroundColor !== resolvedIconColor) {
+                markerElement.style.backgroundColor = resolvedIconColor;
+            }
+            markerElement.style.backgroundImage = "none";
+        } else {
+            // Fallback path for environments that do not support CSS masking.
+            markerElement.style.backgroundColor = "transparent";
+            if (markerElement.style.backgroundImage !== urlValue) {
+                markerElement.style.backgroundImage = urlValue;
+            }
         }
     }
 
@@ -1301,12 +1465,7 @@
     }
 
     function vehicleTrailColorForId(vehicleId) {
-        const key = String(vehicleId || "active");
-        let hash = 0;
-        for (let i = 0; i < key.length; i++) {
-            hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
-        }
-        const paletteIndex = hash % VEHICLE_TRAIL_COLOR_PALETTE.length;
+        const paletteIndex = vehicleColorHash(vehicleId) % VEHICLE_TRAIL_COLOR_PALETTE.length;
         return VEHICLE_TRAIL_COLOR_PALETTE[paletteIndex].slice();
     }
 
@@ -1436,7 +1595,11 @@
         }
 
         const markerElement = createVehicleMarkerElement(vehicleId);
-        updateVehicleMarkerIcon(markerElement, DEFAULT_VEHICLE_ICON_SOURCE);
+        updateVehicleMarkerIcon(
+            markerElement,
+            DEFAULT_VEHICLE_ICON_SOURCE,
+            vehicleIconColorForId(vehicleId)
+        );
 
         const marker = new mapboxgl.Marker({
             element: markerElement,
@@ -1459,7 +1622,11 @@
             return false;
         }
 
-        updateVehicleMarkerIcon(marker.getElement ? marker.getElement() : null, normalizedVehicleState.iconSource);
+        updateVehicleMarkerIcon(
+            marker.getElement ? marker.getElement() : null,
+            normalizedVehicleState.iconSource,
+            normalizedVehicleState.iconColor
+        );
         marker.setLngLat([normalizedVehicleState.longitude, normalizedVehicleState.latitude]);
         if (typeof marker.setRotation === "function") {
             marker.setRotation(normalizedVehicleState.heading);
@@ -1512,8 +1679,51 @@
         pendingVehicleState = null;
         if (pendingCenterOnVehicleRequest) {
             centerOnVehicle(pendingCenterOnVehicleRequest);
+        } else if (followVehicleEnabled === true && normalizedStates.length > 0) {
+            if (Date.now() < followTrackingSuppressUntilMs) {
+                map.triggerRepaint();
+                return true;
+            }
+            const followState = findVehicleStateById(normalizedStates, followVehicleId);
+            const fallbackState = followState || normalizedStates[0];
+            centerOnVehicle({
+                id: fallbackState && fallbackState.id ? String(fallbackState.id) : "",
+                animate: false
+            });
         }
         map.triggerRepaint();
+        return true;
+    }
+
+    function setFollowVehicleEnabled(enabled) {
+        followVehicleEnabled = (enabled === true);
+        followTrackingSuppressUntilMs = 0;
+
+        if (!followVehicleEnabled) {
+            return true;
+        }
+
+        const normalizedStates = normalizeVehiclesState(
+            window.__qgcVehiclesState ||
+            pendingVehicleState ||
+            (window.__qgcVehicleState ? [window.__qgcVehicleState] : [])
+        );
+
+        if (normalizedStates.length === 0) {
+            return true;
+        }
+
+        const followState = findVehicleStateById(normalizedStates, followVehicleId);
+        const fallbackState = followState || normalizedStates[0];
+        return centerOnVehicle({
+            id: fallbackState && fallbackState.id ? String(fallbackState.id) : "",
+            animate: false
+        });
+    }
+
+    function setDeclutterEnabled(enabled) {
+        declutterEnabled = (enabled === true);
+        applyDeclutterState();
         return true;
     }
 
@@ -2562,6 +2772,10 @@
                     return;
                 }
 
+                if (declutterEnabled === true) {
+                    return;
+                }
+
                 if (missionLayerNeedsUpload) {
                     uploadMissionLayerBuffers();
                 }
@@ -2875,8 +3089,28 @@
         return true;
     }
 
+    function suppressFollowTrackingTemporarily(holdoffMs) {
+        if (followVehicleEnabled !== true) {
+            return;
+        }
+
+        const durationMs = Number(holdoffMs);
+        const effectiveHoldoffMs =
+            Number.isFinite(durationMs) && durationMs > 0
+                ? durationMs
+                : FOLLOW_USER_PAN_HOLDOFF_MS;
+        const untilMs = Date.now() + effectiveHoldoffMs;
+        if (!Number.isFinite(followTrackingSuppressUntilMs) || untilMs > followTrackingSuppressUntilMs) {
+            followTrackingSuppressUntilMs = untilMs;
+        }
+    }
+
     function markUserInteraction(potentialCenterChange) {
         hasUserInteractedSinceExternalSync = true;
+        // In follow mode any manual interaction should win immediately.
+        // Mapbox can emit rotate/pitch gestures without a reliable center delta,
+        // so suppress recentering on all gesture starts and move events.
+        suppressFollowTrackingTemporarily(FOLLOW_USER_PAN_HOLDOFF_MS);
     }
 
     function setupInteractionTracking() {
@@ -2884,25 +3118,38 @@
             return;
         }
 
-        map.on("movestart", function () {
+        const onManualInteraction = function (potentialCenterChange) {
             if (isApplyingExternalMapView) {
                 return;
             }
-            markUserInteraction(false);
+            markUserInteraction(potentialCenterChange);
+        };
+
+        const immediateOverrideEvents = [
+            "mousedown",
+            "touchstart",
+            "dragstart",
+            "rotatestart",
+            "pitchstart",
+            "zoomstart",
+            "wheel"
+        ];
+        for (const eventName of immediateOverrideEvents) {
+            map.on(eventName, function () {
+                onManualInteraction(true);
+            });
+        }
+
+        map.on("movestart", function () {
+            onManualInteraction(false);
         });
 
         map.on("move", function () {
-            if (isApplyingExternalMapView) {
-                return;
-            }
-            markUserInteraction(true);
+            onManualInteraction(true);
         });
 
         map.on("moveend", function () {
-            if (isApplyingExternalMapView) {
-                return;
-            }
-            markUserInteraction(true);
+            onManualInteraction(true);
         });
     }
 
@@ -2963,6 +3210,14 @@
 
     window.__qgcCenterOnVehicle = function (centerRequest) {
         return centerOnVehicle(centerRequest);
+    };
+
+    window.__qgcSetFollowVehicleEnabled = function (enabled) {
+        return setFollowVehicleEnabled(enabled);
+    };
+
+    window.__qgcSetDeclutterEnabled = function (enabled) {
+        return setDeclutterEnabled(enabled);
     };
 
     window.__qgcClearVehicleState = function () {
@@ -3088,10 +3343,12 @@
             map.on("load", function () {
                 mapLoaded = true;
                 mapInitializing = false;
+                mapDeclutterLayerVisibilityCache.clear();
                 clearWarning();
                 setStatus("", "");
                 configureInteractionHandlers();
                 installMapboxTerrainAndBuildings();
+                applyDeclutterState();
                 setupInteractionTracking();
                 if (pendingMapViewState) {
                     applyMapViewState(pendingMapViewState);
@@ -3116,6 +3373,8 @@
             map.on("style.load", function () {
                 if (mapLoaded) {
                     installMapboxTerrainAndBuildings();
+                    mapDeclutterLayerVisibilityCache.clear();
+                    applyDeclutterState();
                     if ((window.__qgcMissionsData && window.__qgcMissionsData.length > 0) ||
                             (window.__qgcMissionData) ||
                             (pendingMissionData && pendingMissionData.length > 0)) {

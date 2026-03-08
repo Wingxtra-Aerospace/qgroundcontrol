@@ -37,6 +37,32 @@ MapQuickItem {
     property bool   _adsbVehicle:   vehicle ? false : true
     property var    _map:           map
     property bool   _multiVehicle:  QGroundControl.multiVehicleManager.vehicles.count > 1
+    property var    _vehicleIconColorPalette: [
+        "#F96442", // warm red-orange
+        "#3CC1FE", // sky blue
+        "#64DF72", // green
+        "#FCC747", // amber
+        "#C282FA", // violet
+        "#26E0C9", // aqua
+        "#FB86C3", // pink
+        "#9CDF40"  // lime
+    ]
+    property color  _vehicleIconColor: _adsbVehicle
+        ? "white"
+        : _vehicleIconColorForId(vehicle ? vehicle.id : 0)
+
+    function _vehicleIconColorForId(vehicleId) {
+        const key = String(vehicleId === undefined || vehicleId === null ? "active" : vehicleId)
+        let hash = 0
+        for (let i = 0; i < key.length; i++) {
+            hash = ((hash * 31) + key.charCodeAt(i)) >>> 0
+        }
+        const palette = _vehicleIconColorPalette
+        if (!palette || palette.length === 0) {
+            return "white"
+        }
+        return palette[hash % palette.length]
+    }
 
     sourceItem: Item {
         id:         vehicleItem
@@ -119,17 +145,34 @@ MapQuickItem {
             }
         }
 
-        Image {
+        Item {
             id:                 vehicleIcon
-            source:             _adsbVehicle ? (alert ? "/qmlimages/AlertAircraft.svg" : "/qmlimages/AwarenessAircraft.svg") : vehicle.vehicleImageOpaque
-            mipmap:             true
             width:              _root.size
-            sourceSize.width:   _root.size
-            fillMode:           Image.PreserveAspectFit
+            height:             _root.size
             transform: Rotation {
                 origin.x:       vehicleIcon.width  / 2
                 origin.y:       vehicleIcon.height / 2
                 angle:          isNaN(heading) ? 0 : heading
+            }
+
+            Image {
+                anchors.fill:       parent
+                visible:            _adsbVehicle
+                source:             alert ? "/qmlimages/AlertAircraft.svg" : "/qmlimages/AwarenessAircraft.svg"
+                mipmap:             true
+                sourceSize.width:   _root.size
+                fillMode:           Image.PreserveAspectFit
+            }
+
+            QGCColoredImage {
+                width:              parent.width
+                height:             parent.height
+                visible:            !_adsbVehicle
+                source:             "/qmlimages/vehicleArrowOpaque.svg"
+                mipmap:             true
+                sourceSize.width:   _root.size
+                fillMode:           Image.PreserveAspectFit
+                color:              _root._vehicleIconColor
             }
         }
 
