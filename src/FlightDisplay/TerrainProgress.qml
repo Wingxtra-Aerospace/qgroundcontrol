@@ -21,6 +21,7 @@ Rectangle {
     visible:        false
     color:          qgcPal.window
 
+    property bool   showProgressCard: true
     property var    _activeVehicle: QGroundControl.multiVehicleManager.activeVehicle
     property real   _margins:       ScreenTools.defaultFontPixelWidth / 2
     property real   _totalBlocks:   _activeVehicle ? _activeVehicle.terrain.blocksPending.rawValue + _activeVehicle.terrain.blocksLoaded.rawValue : 0
@@ -28,7 +29,27 @@ Rectangle {
     property real   _blocksPending: _activeVehicle ? _activeVehicle.terrain.blocksPending.rawValue : 0
     property real   _pctComplete:   _activeVehicle && _totalBlocks ? _blocksLoaded / _totalBlocks : 0
 
+    onShowProgressCardChanged: {
+        if (!showProgressCard) {
+            visible = false
+            visibilityTimer.stop()
+        }
+    }
+
+    on_ActiveVehicleChanged: {
+        if (!_activeVehicle) {
+            visible = false
+            visibilityTimer.stop()
+        }
+    }
+
     on_BlocksPendingChanged: {
+        if (!_activeVehicle || !showProgressCard) {
+            visible = false
+            visibilityTimer.stop()
+            return
+        }
+
         if (_blocksPending == 0) {
             // UI doesn't go away immediately
             visibilityTimer.restart()
@@ -39,6 +60,10 @@ Rectangle {
     }
 
     on_BlocksLoadedChanged: {
+        if (!_activeVehicle || !showProgressCard) {
+            return
+        }
+
         if (_blocksLoaded != 0) {
             // This causes the progress indicator to display even if it starts out as complete
             visible = true

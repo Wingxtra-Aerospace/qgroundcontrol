@@ -25,6 +25,8 @@ ColumnLayout {
 
     property real _margins: ScreenTools.defaultFontPixelHeight / 2
 
+    QGCPalette { id: qgcPal; colorGroupEnabled: true }
+
     ColumnLayout {
         Layout.leftMargin:  _margins
         Layout.fillWidth:   true
@@ -34,7 +36,7 @@ ColumnLayout {
         QGCLabel { 
             text:           heading
             font.pointSize: ScreenTools.defaultFontPointSize + 1
-            font.bold:      true
+            font.weight:    Font.DemiBold
         }
 
         QGCLabel { 
@@ -51,10 +53,14 @@ ColumnLayout {
         Layout.fillWidth:   true
         implicitWidth:      _contentLayout.implicitWidth + (showBorder ? _margins * 2 : 0)
         implicitHeight:     _contentLayout.implicitHeight + (showBorder ? _margins * 2: 0)
-        color:              "transparent"
+        color:              qgcPal.globalTheme === QGCPalette.Light ? qgcPal.window : Qt.rgba(0.067, 0.149, 0.271, 0.72)
         border.color:       outerBorderColor
         border.width:       showBorder ? 1 : 0
-        radius:             ScreenTools.defaultFontPixelHeight / 2
+        radius:             ScreenTools.panelCornerRadius
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
 
         Repeater {
             model: showDividers? _contentLayout.children.length : 0
@@ -64,7 +70,8 @@ ColumnLayout {
                 y:                  _contentItem.y + _contentItem.height + _margins + (showBorder ? _margins : 0)
                 width:              parent.width - (showBorder ? _margins * 2 : 0)
                 height:             1
-                color:              QGroundControl.globalPalette.groupBorder
+                color:              qgcPal.groupBorder
+                opacity:            qgcPal.globalTheme === QGCPalette.Light ? 1 : 0.65
                 visible:            _contentItem.visible && 
                                         _contentItem.width !== 0 && _contentItem.height !== 0 &&
                                         index < _contentLayout.children.length - 1

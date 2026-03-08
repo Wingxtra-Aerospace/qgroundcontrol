@@ -20,7 +20,7 @@ Button {
     text:           ""
 
     property bool   primary:        false                               ///< primary button for a group of buttons
-    property bool   showBorder:     qgcPal.globalTheme === QGCPalette.Light
+    property bool   showBorder:     true
     property real   backRadius:     ScreenTools.buttonBorderRadius
     property real   heightFactor:   0.5
     property string iconSource:     ""
@@ -32,7 +32,7 @@ Button {
     property alias backgroundColor:     backRect.color
     property alias textColor:           text.color
 
-    property bool   _showHighlight:     enabled && (pressed | checked)
+    property bool   _showHighlight:     enabled && (pressed || checked)
 
     property int _horizontalPadding:    ScreenTools.defaultFontPixelWidth * 2
     property int _verticalPadding:      Math.round(ScreenTools.defaultFontPixelHeight * heightFactor)
@@ -47,12 +47,27 @@ Button {
         border.width:   showBorder ? 1 : 0
         border.color:   qgcPal.buttonBorder
         color:          primary ? qgcPal.primaryButton : qgcPal.button
+        antialiasing:   true
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
+
+        Behavior on border.color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
 
         Rectangle {
+            id:             highlightRect
             anchors.fill:   parent
             color:          qgcPal.buttonHighlight
             opacity:        _showHighlight ? 1 : control.enabled && control.hovered ? .2 : 0
             radius:         parent.radius
+            antialiasing:   true
+
+            Behavior on opacity {
+                NumberAnimation { duration: ScreenTools.interactionAnimationDuration }
+            }
         }
     }
 
@@ -80,6 +95,10 @@ Button {
                 font.weight:            fontWeight
                 color:                  _showHighlight ? qgcPal.buttonHighlightText : (primary ? qgcPal.primaryButtonText : qgcPal.buttonText)
                 visible:                control.text !== "" 
+
+                Behavior on color {
+                    ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+                }
             }
     }
 }

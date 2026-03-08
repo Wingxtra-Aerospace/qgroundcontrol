@@ -31,17 +31,31 @@ Button {
     property alias  fontPointSize:      innerText.font.pointSize
     property alias  imageSource:        innerImage.source
     property alias  contentWidth:       innerText.contentWidth
+    property bool   _attentionEnabled:  !!toolStripAction && !!toolStripAction.attentionRequested && control.visible && control.enabled && !control.checked
 
     property bool forceImageScale11: false
-    property real imageScale:        forceImageScale11 && (text == "") ? 0.8 : 0.6
-    property real contentMargins:    innerText.height * 0.1
+    property real imageScale:        forceImageScale11 && (text == "") ? 0.72 : 0.58
+    property real contentMargins:    innerText.height * 0.14
+    property bool _hasStatusColor:   !!toolStripAction && !!toolStripAction.useStatusColor
+    property color _statusColor:     _hasStatusColor ? toolStripAction.statusColor : "transparent"
 
-    property color _currentContentColor:  (checked || pressed) ? qgcPal.buttonHighlightText : qgcPal.buttonText
-    property color _currentContentColorSecondary:  (checked || pressed) ? qgcPal.buttonText : qgcPal.buttonHighlight
+    property color _currentContentColor:  _hasStatusColor ?
+                                              _statusColor :
+                                              ((checked || pressed) ? qgcPal.buttonHighlightText : (control.enabled && control.hovered ? qgcPal.text : qgcPal.buttonText))
+    property color _currentContentColorSecondary:  (checked || pressed) ? qgcPal.buttonText : (control.enabled && control.hovered ? qgcPal.buttonHighlightText : qgcPal.buttonHighlight)
 
     signal dropped(int index)
 
     onCheckedChanged: toolStripAction.checked = checked
+
+    on_AttentionEnabledChanged: {
+        if (!_attentionEnabled) {
+            shakeAnimation.stop()
+            shakeTranslate.x = 0
+        } else if (!shakeAnimation.running) {
+            shakeAnimation.start()
+        }
+    }
 
     onClicked: {
         if (mainWindow.allowViewSwitch()) {
@@ -60,6 +74,43 @@ Button {
     }
 
     QGCPalette { id: qgcPal; colorGroupEnabled: control.enabled }
+
+    transform: Translate {
+        id: shakeTranslate
+        x: 0
+    }
+
+    transformOrigin: Item.Center
+    scale: control.pressed ? 0.97 : 1.0
+
+    Behavior on scale {
+        NumberAnimation { duration: ScreenTools.interactionAnimationDuration }
+    }
+
+    Timer {
+        id:                 attentionTimer
+        interval:           10000
+        repeat:             true
+        running:            _attentionEnabled
+        triggeredOnStart:   false
+        onTriggered: {
+            if (_attentionEnabled && !shakeAnimation.running) {
+                shakeAnimation.start()
+            }
+        }
+    }
+
+    SequentialAnimation {
+        id:         shakeAnimation
+        running:    false
+        loops:      1
+
+        NumberAnimation { target: shakeTranslate; property: "x"; to: -4; duration: 45; easing.type: Easing.InOutQuad }
+        NumberAnimation { target: shakeTranslate; property: "x"; to:  4; duration: 90; easing.type: Easing.InOutQuad }
+        NumberAnimation { target: shakeTranslate; property: "x"; to: -3; duration: 75; easing.type: Easing.InOutQuad }
+        NumberAnimation { target: shakeTranslate; property: "x"; to:  3; duration: 75; easing.type: Easing.InOutQuad }
+        NumberAnimation { target: shakeTranslate; property: "x"; to:  0; duration: 55; easing.type: Easing.InOutQuad }
+    }
 
     contentItem: Item {
         id:                 contentLayoutItem
@@ -98,6 +149,10 @@ Button {
                 sourceSize.width:           width
                 anchors.horizontalCenter:   parent.horizontalCenter
                 visible:                    source != "" && !modelData.fullColorIcon
+
+                Behavior on color {
+                    ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+                }
                 
                 QGCColoredImage {
                     id:                         innerImageSecondColor
@@ -113,6 +168,10 @@ Button {
                     sourceSize.width:           width
                     anchors.horizontalCenter:   parent.horizontalCenter
                     visible:                    source != "" && modelData.biColorIcon
+
+                    Behavior on color {
+                        ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+                    }
                 }
             }
 
@@ -122,7 +181,12 @@ Button {
                 color:                      _currentContentColor
                 anchors.horizontalCenter:   parent.horizontalCenter
                 font.bold:                  !innerImage.visible && !innerImageColorful.visible
+                font.weight:                Font.Medium
                 opacity:                    !innerImage.visible ? 0.8 : 1.0
+
+                Behavior on color {
+                    ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+                }
             }
         }
     }
@@ -130,8 +194,13 @@ Button {
     background: Rectangle {
         id:             buttonBkRect
         color:          (control.checked || control.pressed) ?
-                            qgcPal.buttonHighlight :
+                            (toolStripAction.useCheckedBackgroundColor ? toolStripAction.checkedBackgroundColor : qgcPal.buttonHighlight) :
                             ((control.enabled && control.hovered) ? qgcPal.toolStripHoverColor : qgcPal.toolbarBackground)
         anchors.fill:   parent
+        antialiasing:   true
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
     }
 }

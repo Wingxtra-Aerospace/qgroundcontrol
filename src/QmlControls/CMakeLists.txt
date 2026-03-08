@@ -161,6 +161,7 @@ qt_add_qml_module(QGroundControlControlsModule
         ToolStripHoverButton.qml
         ValueSlider.qml
         VehicleRotationCal.qml
+        VehicleStatusDrawerContent.qml
         VehicleSummaryRow.qml
 
 # Due to the fact t hatset_source_files_properties with QT_RESOURCE_ALIAS doesn't work in cmombination with qt_qdd_add_qml_module on Windows.

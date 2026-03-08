@@ -350,8 +350,12 @@ void MultiVehicleManager::_sendGCSHeartbeat()
 
 void MultiVehicleManager::selectVehicle(int vehicleId)
 {
-    if(!_vehicleSelected(vehicleId)) {
+    if (!_vehicleSelected(vehicleId)) {
         Vehicle *const vehicle = getVehicleById(vehicleId);
+        if (!vehicle) {
+            qCWarning(MultiVehicleManagerLog) << "selectVehicle called with invalid vehicle id" << vehicleId;
+            return;
+        }
         _selectedVehicles->append(vehicle);
         return;
     }
@@ -361,6 +365,9 @@ void MultiVehicleManager::deselectVehicle(int vehicleId)
 {
     for (int i = 0; i < _selectedVehicles->count(); i++) {
         Vehicle *const vehicle = qobject_cast<Vehicle*>(_selectedVehicles->get(i));
+        if (!vehicle) {
+            continue;
+        }
         if (vehicle->id() == vehicleId) {
             _selectedVehicles->removeAt(i);
             return;
@@ -377,6 +384,9 @@ bool MultiVehicleManager::_vehicleSelected(int vehicleId)
 {
     for (int i = 0; i < _selectedVehicles->count(); i++) {
         Vehicle *const vehicle = qobject_cast<Vehicle*>(_selectedVehicles->get(i));
+        if (!vehicle) {
+            continue;
+        }
         if (vehicle->id() == vehicleId) {
             return true;
         }
@@ -400,6 +410,9 @@ void MultiVehicleManager::_setActiveVehicle(Vehicle *vehicle)
 {
     if (vehicle != _activeVehicle) {
         _activeVehicle = vehicle;
+        if (_activeVehicle && !_vehicleSelected(_activeVehicle->id())) {
+            _selectedVehicles->append(_activeVehicle);
+        }
         emit activeVehicleChanged(vehicle);
     }
 }

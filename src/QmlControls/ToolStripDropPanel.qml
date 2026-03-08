@@ -135,8 +135,11 @@ Item {
                 context.lineTo(panelX, panelY)                              // top left
 
                 context.closePath()
-                context.fillStyle = qgcPal.windowShade
+                context.fillStyle = qgcPal.globalTheme === QGCPalette.Light ? qgcPal.windowShade : "rgba(13, 35, 64, 0.88)"
                 context.fill()
+                context.lineWidth = 1
+                context.strokeStyle = qgcPal.groupBorder
+                context.stroke()
             }
         } // Canvas - arrowCanvas
 

@@ -126,3 +126,19 @@ void ToolStripAction::setDropPanelComponent(QQmlComponent* dropPanelComponent)
     _dropPanelComponent = dropPanelComponent;
     emit dropPanelComponentChanged();
 }
+
+void ToolStripAction::setUseCheckedBackgroundColor(bool useCheckedBackgroundColor)
+{
+    if (useCheckedBackgroundColor != _useCheckedBackgroundColor) {
+        _useCheckedBackgroundColor = useCheckedBackgroundColor;
+        emit useCheckedBackgroundColorChanged(useCheckedBackgroundColor);
+    }
+}
+
+void ToolStripAction::setCheckedBackgroundColor(const QColor& checkedBackgroundColor)
+{
+    if (checkedBackgroundColor != _checkedBackgroundColor) {
+        _checkedBackgroundColor = checkedBackgroundColor;
+        emit checkedBackgroundColorChanged(checkedBackgroundColor);
+    }
+}

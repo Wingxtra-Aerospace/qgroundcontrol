@@ -31,8 +31,27 @@ TextArea {
     wrapMode:               TextEdit.Wrap
 
     property bool noMessages: messageText.length === 0
+    property var drawer: null
+    property var activeVehicle: QGroundControl.multiVehicleManager.activeVehicle
 
     property var _fact: null
+
+    function _refreshMessages() {
+        if (activeVehicle) {
+            messageText.text = formatMessage(activeVehicle.formattedMessages)
+            activeVehicle.resetAllMessages()
+        } else {
+            messageText.text = ""
+        }
+    }
+
+    function clearMessages() {
+        if (activeVehicle) {
+            activeVehicle.clearMessages()
+            activeVehicle.resetAllMessages()
+        }
+        messageText.text = ""
+    }
 
     function formatMessage(message) {
         message = message.replace(new RegExp("<#E>", "g"), "color: " + qgcPal.warningText + "; font: " + (ScreenTools.defaultFontPointSize.toFixed(0) - 1) + "pt monospace;");
@@ -41,15 +60,12 @@ TextArea {
         return message;
     }
 
-    Component.onCompleted: {
-        messageText.text = formatMessage(_activeVehicle.formattedMessages)
-        if (_activeVehicle) {
-            _activeVehicle.resetAllMessages()
-        }
-    }
+    Component.onCompleted: _refreshMessages()
+
+    onActiveVehicleChanged: _refreshMessages()
 
     Connections {
-        target: _activeVehicle
+        target: activeVehicle
         onNewFormattedMessage: (formattedMessage) => { messageText.insert(0, formatMessage(formattedMessage)) }
     }
 
@@ -104,8 +120,7 @@ TextArea {
         QGCMouseArea {
             fillItem: parent
             onClicked: {
-                _activeVehicle.clearMessages()
-                mainWindow.closeIndicatorDrawer()
+                messageText.clearMessages()
             }
         }
     }

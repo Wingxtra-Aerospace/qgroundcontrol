@@ -18,12 +18,12 @@ import QGroundControl.ScreenTools
 
 Button {
     id:             control
-    padding:        ScreenTools.defaultFontPixelWidth * 0.75
+    padding:        ScreenTools.defaultFontPixelWidth * 0.85
     hoverEnabled:   !ScreenTools.isMobile
     autoExclusive:  true
     icon.color:     textColor
 
-    property color textColor: checked || pressed ? qgcPal.buttonHighlightText : qgcPal.buttonText
+    property color textColor: checked || pressed ? qgcPal.buttonHighlightText : (hovered ? qgcPal.text : qgcPal.buttonText)
 
     QGCPalette {
         id:                 qgcPal
@@ -31,9 +31,19 @@ Button {
     }
 
     background: Rectangle {
-        color:      qgcPal.buttonHighlight
-        opacity:    checked || pressed ? 1 : enabled && hovered ? .2 : 0
-        radius:     ScreenTools.defaultFontPixelWidth / 2
+        color:      checked || pressed ? qgcPal.buttonHighlight : (enabled && hovered ? qgcPal.toolStripHoverColor : Qt.rgba(0,0,0,0))
+        opacity:    1
+        radius:     ScreenTools.panelCornerRadius * 0.75
+        border.width: checked || pressed || hovered ? 1 : 0
+        border.color: qgcPal.buttonBorder
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
+
+        Behavior on border.color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
     }
 
     contentItem: RowLayout {
@@ -42,8 +52,8 @@ Button {
         QGCColoredImage {
             source: control.icon.source
             color:  control.icon.color
-            width:  ScreenTools.defaultFontPixelHeight
-            height: ScreenTools.defaultFontPixelHeight
+            width:  ScreenTools.defaultFontPixelHeight * 1.05
+            height: ScreenTools.defaultFontPixelHeight * 1.05
         }
 
         QGCLabel {
@@ -52,6 +62,11 @@ Button {
             text:                   control.text
             color:                  control.textColor
             horizontalAlignment:    QGCLabel.AlignLeft
+            font.weight:            Font.Medium
+
+            Behavior on color {
+                ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+            }
         }
     }
 }

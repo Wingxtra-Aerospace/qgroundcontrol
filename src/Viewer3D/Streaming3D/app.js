@@ -80,7 +80,9 @@
     const DEFAULT_STYLE_URL = "mapbox://styles/mapbox/standard-satellite";
     const WHEEL_ZOOM_RATE = 1 / 1500;
     const TRACKPAD_ZOOM_RATE = 1 / 260;
-    const FOLLOW_USER_PAN_HOLDOFF_MS = 10000;
+    // Delay before follow mode re-centers after the last manual camera interaction.
+    // Keep this short so manual override feels responsive without a long dead period.
+    const FOLLOW_USER_PAN_HOLDOFF_MS = 2000;
     const PAN_MAX_SPEED = 760;
     const PAN_DECELERATION = 9800;
     const ROTATE_MAX_SPEED = 210;

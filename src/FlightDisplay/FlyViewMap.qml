@@ -13,6 +13,7 @@ import QtLocation
 import QtPositioning
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtCore
 
 import QGroundControl
 import QGroundControl.Controllers
@@ -51,6 +52,40 @@ FlightMap {
     property bool   _disableVehicleTracking:    false
     property bool   _keepVehicleCentered:       pipMode ? true : false
     property bool   _saveZoomLevelSetting:      true
+    property bool   _declutterMap:              _mapUxSettings.declutterMapEnabled
+    property bool   followVehicleEnabled:       _keepMapCenteredOnVehicle
+    property bool   declutterEnabled:           _declutterMap
+    property bool   canCenterVehicle:           _activeVehicleCoordinate.isValid
+
+    on_DeclutterMapChanged: if (_mapUxSettings.declutterMapEnabled !== _declutterMap) { _mapUxSettings.declutterMapEnabled = _declutterMap }
+
+    function toggleFollowVehicle() {
+        const followVehicle = !_keepMapCenteredOnVehicle
+        _flyViewSettings.keepMapCenteredOnVehicle.rawValue = followVehicle
+        if (followVehicle && _activeVehicleCoordinate.isValid) {
+            _disableVehicleTracking = false
+            animatedMapRecenter(_root.center, _activeVehicleCoordinate)
+        }
+    }
+
+    function toggleDeclutter() {
+        _declutterMap = !_declutterMap
+    }
+
+    function centerOnActiveVehicle() {
+        if (!_activeVehicleCoordinate.isValid) {
+            return
+        }
+        _disableVehicleTracking = false
+        animatedMapRecenter(_root.center, _activeVehicleCoordinate)
+    }
+
+    Settings {
+        id:         _mapUxSettings
+        category:   "NexusFlyMapUX"
+
+        property bool declutterMapEnabled: false
+    }
 
     function _adjustMapZoomForPipMode() {
         _saveZoomLevelSetting = false
@@ -246,6 +281,7 @@ FlightMap {
     ObstacleDistanceOverlayMap {
         id: obstacleDistance
         showText: !pipMode
+        visible: !pipMode && !_declutterMap
     }
 
     // Add trajectory lines to the map
@@ -254,7 +290,7 @@ FlightMap {
         line.width: 3
         line.color: "red"
         z:          QGroundControl.zOrderTrajectoryLines
-        visible:    !pipMode
+        visible:    !pipMode && !_declutterMap
 
         Connections {
             target:                 QGroundControl.multiVehicleManager
@@ -290,11 +326,13 @@ FlightMap {
             coordinate:     object.coordinate
             map:            _root
             z:              QGroundControl.zOrderVehicles
+            visible:        !_declutterMap
         }
     }
     // Add ADSB vehicles to the map
     MapItemView {
         model: QGroundControl.adsbVehicleManager.adsbVehicles
+        visible: !_declutterMap
         delegate: VehicleMapItem {
             coordinate:     object.coordinate
             altitude:       object.altitude
@@ -316,6 +354,7 @@ FlightMap {
             largeMapView:           !pipMode
             planMasterController:   masterController
             vehicle:                _vehicle
+            visible:                !_declutterMap
 
             property var _vehicle: object
 
@@ -330,6 +369,7 @@ FlightMap {
     CustomMapItems {
         map:            _root
         largeMapView:   !pipMode
+        visible:        !_declutterMap
     }
 
     GeoFenceMapVisuals {
@@ -338,11 +378,13 @@ FlightMap {
         interactive:            false
         planView:               false
         homePosition:           _activeVehicle && _activeVehicle.homePosition.isValid ? _activeVehicle.homePosition :  QtPositioning.coordinate()
+        visible:                !_declutterMap
     }
 
     // Rally points on map
     MapItemView {
         model: _rallyPointController.points
+        visible: !_declutterMap
 
         delegate: MapQuickItem {
             id:             itemIndicator
@@ -361,6 +403,7 @@ FlightMap {
     // Camera trigger points
     MapItemView {
         model: _activeVehicle ? _activeVehicle.cameraTriggerPoints : 0
+        visible: !_declutterMap
 
         delegate: CameraTriggerIndicator {
             coordinate:     object.coordinate
@@ -767,6 +810,28 @@ FlightMap {
             position = _root.mapToItem(globals.parent, position)
             var dropPanel = mapClickDropPanelComponent.createObject(mainWindow, { mapClickCoord: clickCoord, clickRect: Qt.rect(position.x, position.y, 0, 0) })
             dropPanel.open()
+        }
+    }
+
+    Rectangle {
+        anchors.horizontalCenter:   parent.horizontalCenter
+        anchors.top:                parent.top
+        anchors.topMargin:          _toolsMargin
+        width:                      declutterLabel.implicitWidth + (ScreenTools.defaultFontPixelWidth * 1.2)
+        height:                     declutterLabel.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.65)
+        radius:                     ScreenTools.buttonBorderRadius
+        color:                      qgcPal.button
+        border.width:               1
+        border.color:               qgcPal.groupBorder
+        z:                          QGroundControl.zOrderWidgets + 1
+        visible:                    _declutterMap && !pipMode
+
+        QGCLabel {
+            id:                 declutterLabel
+            anchors.centerIn:   parent
+            text:               qsTr("Declutter mode active")
+            font.pointSize:     ScreenTools.smallFontPointSize
+            font.weight:        Font.Medium
         }
     }
 

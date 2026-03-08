@@ -23,6 +23,9 @@ ToolStripActionList {
             property bool   _viewer3DEnabled:       QGroundControl.settingsManager.viewer3DSettings.enabled.rawValue
             id: view3DIcon
             visible: _viewer3DEnabled
+            checked: _is3DViewOpen
+            useCheckedBackgroundColor: true
+            checkedBackgroundColor: Qt.rgba(0.078, 0.196, 0.325, 1.0)
             text:           qsTr("3D View")
             iconSource:     "/qmlimages/Viewer3D/City3DMapIcon.svg"
             onTriggered:{
@@ -40,6 +43,15 @@ ToolStripActionList {
                 }else{
                     iconSource =     "/qmlimages/Viewer3D/City3DMapIcon.svg"
                     text =           qsTr("3D View")
+                }
+            }
+        },
+        ToolStripAction {
+            text:           qsTr("Plan Flight")
+            iconSource:     "/qmlimages/Plan.svg"
+            onTriggered: {
+                if (mainWindow.allowViewSwitch()) {
+                    mainWindow.showPlanView()
                 }
             }
         },

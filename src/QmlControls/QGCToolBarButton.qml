@@ -24,30 +24,42 @@ Button {
     leftPadding:        _horizontalMargin
     rightPadding:       _horizontalMargin
     checkable:          false
+    hoverEnabled:       !ScreenTools.isMobile
 
     property bool logo: false
+    property color iconColor: logo ? "transparent" : (button._active ? qgcPal.buttonHighlightText : qgcPal.buttonText)
+    property real iconScale: 1.0
+    property bool _active: checked || pressed
 
     property real _horizontalMargin: ScreenTools.defaultFontPixelWidth
 
     onCheckedChanged: checkable = false
 
+    QGCPalette { id: qgcPal; colorGroupEnabled: button.enabled }
+
     background: Rectangle {
         anchors.fill:   parent
-        color:          button.checked ? qgcPal.buttonHighlight : Qt.rgba(0,0,0,0)
+        radius:         ScreenTools.buttonBorderRadius
+        antialiasing:   true
+        color:          button._active ? qgcPal.buttonHighlight : (button.enabled && button.hovered ? qgcPal.toolStripHoverColor : Qt.rgba(0, 0, 0, 0))
         border.color:   "red"
         border.width:   QGroundControl.corePlugin.showTouchAreas ? 3 : 0
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
     }
 
     contentItem: Row {
-        spacing:                ScreenTools.defaultFontPixelWidth
+        spacing:                ScreenTools.defaultFontPixelWidth * 0.8
         anchors.verticalCenter: button.verticalCenter
         QGCColoredImage {
             id:                     _icon
-            height:                 ScreenTools.defaultFontPixelHeight * 2
+            height:                 ScreenTools.defaultFontPixelHeight * 1.8 * button.iconScale
             width:                  height
             sourceSize.height:      parent.height
             fillMode:               Image.PreserveAspectFit
-            color:                  logo ? "transparent" : (button.checked ? qgcPal.buttonHighlightText : qgcPal.buttonText)
+            color:                  button.iconColor
             source:                 button.icon.source
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -55,8 +67,15 @@ Button {
             id:                     _label
             visible:                text !== ""
             text:                   button.text
-            color:                  button.checked ? qgcPal.buttonHighlightText : qgcPal.buttonText
+            color:                  button._active ? qgcPal.buttonHighlightText : qgcPal.buttonText
+            font.family:            ScreenTools.normalFontFamily
+            font.pointSize:         ScreenTools.defaultFontPointSize
+            font.weight:            Font.Medium
             anchors.verticalCenter: parent.verticalCenter
+
+            Behavior on color {
+                ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+            }
         }
     }
 }

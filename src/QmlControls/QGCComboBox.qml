@@ -36,7 +36,7 @@ T.ComboBox {
 
     property real   _popupWidth:    width
     property bool   _onCompleted:   false
-    property bool   _showBorder:    qgcPal.globalTheme === QGCPalette.Light
+    property bool   _showBorder:    true
 
     QGCPalette { id: qgcPal; colorGroupEnabled: enabled }
 
@@ -121,10 +121,19 @@ T.ComboBox {
     }
 
     background: Rectangle {
-        color:          qgcPal.button
-        border.color:   qgcPal.buttonBorder
+        color:          control.activeFocus ? qgcPal.windowShadeLight : qgcPal.button
+        border.color:   control.activeFocus ? qgcPal.colorBlue : qgcPal.buttonBorder
         border.width:   _showBorder ? 1 : 0
-        radius:         ScreenTools.buttonBorderRadius
+        radius:         ScreenTools.panelCornerRadius * 0.72
+        antialiasing:   true
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
+
+        Behavior on border.color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
     }
 
     popup: T.Popup {
@@ -147,7 +156,7 @@ T.ComboBox {
                 width:          parent.width
                 height:         parent.height
                 color:          "transparent"
-                border.color:   qgcPal.text
+                border.color:   qgcPal.groupBorder
             }
 
             T.ScrollIndicator.vertical: ScrollIndicator { }
@@ -155,6 +164,9 @@ T.ComboBox {
 
         background: Rectangle {
             color: qgcPal.window
+            radius: ScreenTools.panelCornerRadius * 0.65
+            border.width: 1
+            border.color: qgcPal.groupBorder
         }
     }
 }

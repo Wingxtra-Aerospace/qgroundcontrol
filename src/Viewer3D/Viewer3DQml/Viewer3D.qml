@@ -21,9 +21,14 @@ Item {
     property Item pipState: _pipState
     property var missionController: null
     property bool isSatelliteMap: true
+    property var _flyViewSettings: QGroundControl.settingsManager.flyViewSettings
     readonly property real minimumZoomLevel: 2.0
     readonly property real maximumZoomLevel: 20.0
     property real zoomLevel: _clampZoom(Number(QGroundControl.flightMapZoom))
+    property bool followVehicleEnabled: _flyViewSettings ? _flyViewSettings.keepMapCenteredOnVehicle.rawValue : false
+    property bool declutterEnabled: false
+    property var _activeVehicle: QGroundControl.multiVehicleManager.activeVehicle
+    property bool canCenterVehicle: !!(_activeVehicle && _activeVehicle.coordinate && _activeVehicle.coordinate.isValid)
 
     // Existing setting: Fly View -> 3D View enabled
     property bool _viewer3DEnabled: QGroundControl.settingsManager.viewer3DSettings.enabled.rawValue
@@ -85,6 +90,64 @@ Item {
         }
 
         return false
+    }
+
+    function _pushFollowStateToStreaming3D() {
+        if (_streaming3DEnabled !== true) {
+            return false
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.setFollowVehicleEnabled === "function") {
+            return streaming3DLoader.item.setFollowVehicleEnabled(followVehicleEnabled)
+        }
+
+        return false
+    }
+
+    function _pushDeclutterStateToStreaming3D() {
+        if (_streaming3DEnabled !== true) {
+            return false
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.setDeclutterEnabled === "function") {
+            return streaming3DLoader.item.setDeclutterEnabled(declutterEnabled)
+        }
+
+        return false
+    }
+
+    function toggleFollowVehicle() {
+        const followVehicle = !followVehicleEnabled
+        if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = followVehicle
+        } else {
+            followVehicleEnabled = followVehicle
+        }
+        _pushFollowStateToStreaming3D()
+        if (followVehicle) {
+            centerOnActiveVehicle()
+        }
+    }
+
+    function toggleDeclutter() {
+        declutterEnabled = !declutterEnabled
+        _pushDeclutterStateToStreaming3D()
+    }
+
+    function centerOnActiveVehicle() {
+        if (!canCenterVehicle || _streaming3DEnabled !== true) {
+            return
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.centerOnActiveVehicle === "function") {
+            streaming3DLoader.item.centerOnActiveVehicle()
+        }
     }
 
     function getScaleLineMeters(scaleLinePixelLength, yPixel, onDone) {
@@ -287,6 +350,14 @@ Item {
         }
     }
 
+    onFollowVehicleEnabledChanged: {
+        _pushFollowStateToStreaming3D()
+    }
+
+    onDeclutterEnabledChanged: {
+        _pushDeclutterStateToStreaming3D()
+    }
+
     Component.onCompleted: {
         _prewarmStreaming3D()
     }
@@ -306,6 +377,8 @@ Item {
             } else if (status === Loader.Ready) {
                 console.log("[Streaming3D] Loader.Ready")
                 _streamingLoadError = ""
+                _pushFollowStateToStreaming3D()
+                _pushDeclutterStateToStreaming3D()
                 if (isOpen && _streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
                     _streamingNeedsMapSyncOnOpen = false
                 }

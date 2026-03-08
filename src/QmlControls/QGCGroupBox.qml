@@ -23,10 +23,16 @@ GroupBox {
         width:  parent.width
         height: parent.height - control.topPadding + control.padding
         color:  qgcPal.windowShade
+        radius: ScreenTools.panelCornerRadius * 0.72
+        border.width: 1
+        border.color: qgcPal.groupBorder
+        antialiasing: true
     }
 
     label: QGCLabel {
         width:  control.availableWidth
         text:   control.title
+        font.weight: Font.DemiBold
+        color: qgcPal.text
     }
 }

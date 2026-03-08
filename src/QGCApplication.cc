@@ -127,19 +127,19 @@ QGCApplication::QGCApplication(int &argc, char *argv[], bool unitTesting, bool s
     (void) connect(&_missingParamsDelayedDisplayTimer, &QTimer::timeout, this, &QGCApplication::_missingParamsDisplay);
 
     // Set application information
+    QString baseApplicationName = QStringLiteral(QGC_APP_NAME);
+    // Keep the Nexus branding in window/app title even if an old build cache still provides legacy name.
+    if (baseApplicationName.compare(QStringLiteral("QGroundControl"), Qt::CaseInsensitive) == 0) {
+        baseApplicationName = QStringLiteral("Nexus");
+    }
+
     QString applicationName;
     if (_runningUnitTests || simpleBootTest) {
         // We don't want unit tests to use the same QSettings space as the normal app. So we tweak the app
         // name. Also we want to run unit tests with clean settings every time.
-        applicationName = QStringLiteral("%1_unittest").arg(QGC_APP_NAME);
+        applicationName = QStringLiteral("%1_unittest").arg(baseApplicationName);
     } else {
-#ifdef QGC_DAILY_BUILD
-        // This gives daily builds their own separate settings space. Allowing you to use daily and stable builds
-        // side by side without daily screwing up your stable settings.
-        applicationName = QStringLiteral("%1 Daily").arg(QGC_APP_NAME);
-#else
-        applicationName = QGC_APP_NAME;
-#endif
+        applicationName = baseApplicationName;
     }
     setApplicationName(applicationName);
     setOrganizationName(QGC_ORG_NAME);

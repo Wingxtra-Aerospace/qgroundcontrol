@@ -33,9 +33,9 @@ Item {
     property real defaultFontPointSize:     10
     property real platformFontPointSize:    10
 
-    readonly property real smallFontPointRatio:      0.75
-    readonly property real mediumFontPointRatio:     1.25
-    readonly property real largeFontPointRatio:      1.5
+    readonly property real smallFontPointRatio:      0.80
+    readonly property real mediumFontPointRatio:     1.20
+    readonly property real largeFontPointRatio:      1.42
 
     /// You can use these properties to position ui elements in a screen resolution independent manner. Using fixed positioning values should not
     /// be done. All positioning should be done using anchors or a ratio of the defaultFontPixelHeight and defaultFontPixelWidth values. This way
@@ -57,7 +57,7 @@ Item {
     property real defaultFontDescent:       0
 
     /// The default amount of space in between controls in a dialog
-    property real defaultDialogControlSpacing: defaultFontPixelHeight / 2
+    property real defaultDialogControlSpacing: defaultFontPixelHeight * 0.6
 
     property real smallFontPointSize:       10
     property real mediumFontPointSize:      10
@@ -105,17 +105,19 @@ Item {
     property real minTouchPixels:                   0   ///< Minimum touch size in pixels (calculatedd from minTouchMillimeters and realPixelDensity)
 
     // The implicit heights/widths for our custom control set
-    property real implicitButtonWidth:              Math.round(defaultFontPixelWidth *  (isMobile ? 7.0 : 5.0))
-    property real implicitButtonHeight:             Math.round(defaultFontPixelHeight * (isMobile ? 2.0 : 1.6))
+    property real implicitButtonWidth:              Math.round(defaultFontPixelWidth *  (isMobile ? 7.2 : 5.2))
+    property real implicitButtonHeight:             Math.round(defaultFontPixelHeight * (isMobile ? 2.0 : 1.7))
     property real implicitCheckBoxHeight:           Math.round(defaultFontPixelHeight * (isMobile ? 1.2 : 1.0))
     property real implicitRadioButtonHeight:        implicitCheckBoxHeight
     property real implicitTextFieldWidth:           defaultFontPixelWidth * 13
-    property real implicitTextFieldHeight:          Math.round(defaultFontPixelHeight * (isMobile ? 2.0 : 1.6))
-    property real implicitComboBoxHeight:           Math.round(defaultFontPixelHeight * (isMobile ? 2.0 : 1.6))
+    property real implicitTextFieldHeight:          Math.round(defaultFontPixelHeight * (isMobile ? 2.0 : 1.65))
+    property real implicitComboBoxHeight:           Math.round(defaultFontPixelHeight * (isMobile ? 2.0 : 1.65))
     property real implicitComboBoxWidth:            Math.round(defaultFontPixelWidth *  (isMobile ? 7.0 : 5.0))
-    property real comboBoxPadding:                  defaultFontPixelWidth
+    property real comboBoxPadding:                  defaultFontPixelWidth * 0.85
     property real implicitSliderHeight:             isMobile ? Math.max(defaultFontPixelHeight, minTouchPixels) : defaultFontPixelHeight
-    property real buttonBorderRadius:               defaultFontPixelWidth / 2
+    property real buttonBorderRadius:               Math.round(defaultFontPixelHeight * 0.34)
+    property real panelCornerRadius:                Math.round(defaultFontPixelHeight * 0.48)
+    property int  interactionAnimationDuration:     140
     // It's not possible to centralize an even number of pixels, checkBoxIndicatorSize should be an odd number to allow centralization
     property real checkBoxIndicatorSize:            2 * Math.floor(defaultFontPixelHeight * (isMobile ? 1.5 : 1.0) / 2) + 1
     property real radioButtonIndicatorSize:         checkBoxIndicatorSize

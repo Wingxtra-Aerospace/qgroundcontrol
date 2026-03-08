@@ -12,6 +12,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtQuick.Window
+import QtCore
 
 import QGroundControl
 import QGroundControl.Palette
@@ -70,6 +71,169 @@ ApplicationWindow {
     }
 
     readonly property real      _topBottomMargins:          ScreenTools.defaultFontPixelHeight * 0.5
+    property bool               _showFlyView:               true
+    property bool               _accessibilityModeEnabled:  _uiPreferences.accessibilityModeEnabled
+    property bool               _reducedMotionEnabled:      _uiPreferences.reducedMotionEnabled
+    property var                _activeVehicle:             QGroundControl.multiVehicleManager.activeVehicle
+    property int                _notificationUnreadCount:   0
+    property int                _notificationMaxItems:      80
+    property int                _notificationSequence:      0
+    property string             _notificationSortMode:      "all"
+    readonly property real      _rightSideDrawerOffset:     Math.max(notificationDrawer.position * notificationDrawer.width, toolSelectDrawer.position * toolSelectDrawer.width)
+
+    font.pointSize: ScreenTools.defaultFontPointSize * (_accessibilityModeEnabled ? 1.1 : 1.0)
+
+    Settings {
+        id:         _uiPreferences
+        category:   "NexusUserExperience"
+
+        property bool accessibilityModeEnabled: false
+        property bool reducedMotionEnabled:     false
+    }
+
+    ListModel {
+        id: _notificationModel
+    }
+
+    function _asPlainText(text) {
+        if (!text) {
+            return ""
+        }
+        return text.toString().replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+    }
+
+    function _notificationSeverityPriority(severity) {
+        if (severity === "error") {
+            return 0
+        } else if (severity === "warning") {
+            return 1
+        }
+        return 2
+    }
+
+    function _notificationComparator(left, right) {
+        if (_notificationSortMode === "all") {
+            // Show everything in plain timeline order (oldest first), no prioritization.
+            return left.sequence - right.sequence
+        } else if (_notificationSortMode === "newest") {
+            // Show everything in reverse timeline order (newest first), no prioritization.
+            return right.sequence - left.sequence
+        } else if (_notificationSortMode === "recommended") {
+            if (left.read !== right.read) {
+                return left.read ? 1 : -1
+            }
+            const severityDelta = _notificationSeverityPriority(left.severity) - _notificationSeverityPriority(right.severity)
+            if (severityDelta !== 0) {
+                return severityDelta
+            }
+            return right.sequence - left.sequence
+        } else if (_notificationSortMode === "severity") {
+            const severityDelta = _notificationSeverityPriority(left.severity) - _notificationSeverityPriority(right.severity)
+            if (severityDelta !== 0) {
+                return severityDelta
+            }
+            return right.sequence - left.sequence
+        }
+
+        // Fallback: newest first
+        return right.sequence - left.sequence
+    }
+
+    function _resortNotifications() {
+        if (_notificationModel.count < 2) {
+            return
+        }
+
+        const entries = []
+        for (let i = 0; i < _notificationModel.count; i++) {
+            entries.push(_notificationModel.get(i))
+        }
+        entries.sort(_notificationComparator)
+
+        _notificationModel.clear()
+        for (let i = 0; i < entries.length; i++) {
+            _notificationModel.append(entries[i])
+        }
+    }
+
+    function _markAllNotificationsRead() {
+        let anyChanged = false
+        for (let i = 0; i < _notificationModel.count; i++) {
+            if (!_notificationModel.get(i).read) {
+                _notificationModel.setProperty(i, "read", true)
+                anyChanged = true
+            }
+        }
+        _notificationUnreadCount = 0
+
+        if (anyChanged && _notificationSortMode === "recommended") {
+            _resortNotifications()
+        }
+    }
+
+    function addNotification(title, detail, severity = "info") {
+        const cleanTitle = _asPlainText(title)
+        const cleanDetail = _asPlainText(detail)
+        const entryRead = notificationDrawer.visible
+
+        _notificationModel.append({
+            sequence: _notificationSequence++,
+            timestamp: Qt.formatDateTime(new Date(), "HH:mm:ss"),
+            title: cleanTitle,
+            detail: cleanDetail,
+            severity: severity,
+            read: entryRead
+        })
+
+        _resortNotifications()
+
+        while (_notificationModel.count > _notificationMaxItems) {
+            _notificationModel.remove(_notificationModel.count - 1)
+        }
+
+        if (!entryRead) {
+            _notificationUnreadCount += 1
+        }
+    }
+
+    function _vehicleSeverityToNotificationSeverity(severity) {
+        if (severity <= 3) {
+            return "error"
+        } else if (severity <= 4) {
+            return "warning"
+        }
+        return "info"
+    }
+
+    function _setAccessibilityMode(enabled) {
+        if (_accessibilityModeEnabled === enabled) {
+            return
+        }
+        _accessibilityModeEnabled = enabled
+        _uiPreferences.accessibilityModeEnabled = enabled
+    }
+
+    function _setReducedMotionMode(enabled) {
+        if (_reducedMotionEnabled === enabled) {
+            return
+        }
+        _reducedMotionEnabled = enabled
+        _uiPreferences.reducedMotionEnabled = enabled
+    }
+
+    function toggleNotificationCenter() {
+        if (notificationDrawer.visible) {
+            notificationDrawer.close()
+        } else {
+            if (toolSelectDrawer.visible) {
+                toolSelectDrawer.close()
+            }
+            if (indicatorDrawer.visible) {
+                closeIndicatorDrawer()
+            }
+            notificationDrawer.open()
+        }
+    }
 
     //-------------------------------------------------------------------------
     //-- Global Scope Variables
@@ -103,6 +267,39 @@ ApplicationWindow {
     signal vtolTransitionToMRFlightRequest
     signal showPreFlightChecklistIfNeeded
 
+    Connections {
+        target: QGroundControl.multiVehicleManager
+
+        function onActiveVehicleChanged(activeVehicle) {
+            _notificationModel.clear()
+            _notificationUnreadCount = 0
+            if (activeVehicle) {
+                addNotification(qsTr("Vehicle Connected"), qsTr("Vehicle %1 is now active").arg(activeVehicle.id), "info")
+            } else {
+                addNotification(qsTr("Vehicle Disconnected"), qsTr("No active vehicle"), "warning")
+            }
+        }
+    }
+
+    Connections {
+        target:                 globals.activeVehicle
+        ignoreUnknownSignals:   true
+
+        function onTextMessageReceived(sysid, componentid, severity, text, description) {
+            const vehicleTitle = qsTr("Vehicle %1").arg(sysid)
+            const detailText = description && description.length > 0 ? (text + " " + description) : text
+            addNotification(vehicleTitle, detailText, _vehicleSeverityToNotificationSeverity(severity))
+        }
+
+        function onArmedChanged() {
+            addNotification(qsTr("Vehicle State"), globals.activeVehicle.armed ? qsTr("Vehicle armed") : qsTr("Vehicle disarmed"), "info")
+        }
+
+        function onFlightModeChanged(flightMode) {
+            addNotification(qsTr("Flight Mode"), flightMode, "info")
+        }
+    }
+
     //-------------------------------------------------------------------------
     //-- Global Scope Functions
 
@@ -116,13 +313,15 @@ ApplicationWindow {
     }
 
     function showPlanView() {
-        flyView.visible = false
-        planView.visible = true
+        if (_showFlyView) {
+            _showFlyView = false
+        }
     }
 
     function showFlyView() {
-        flyView.visible = true
-        planView.visible = false
+        if (!_showFlyView) {
+            _showFlyView = true
+        }
     }
 
     function showTool(toolTitle, toolSource, toolIcon) {
@@ -267,12 +466,31 @@ ApplicationWindow {
         id:                     flyView
         anchors.fill:           parent
         utmspSendActTrigger:    _utmspSendActTrigger
+        enabled:                mainWindow._showFlyView
+        visible:                opacity > 0
+        opacity:                mainWindow._showFlyView ? 1 : 0
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: mainWindow._reducedMotionEnabled ? 0 : (ScreenTools.interactionAnimationDuration + 20)
+                easing.type: Easing.InOutQuad
+            }
+        }
     }
 
     PlanView {
         id:             planView
         anchors.fill:   parent
-        visible:        false
+        enabled:        !mainWindow._showFlyView
+        visible:        opacity > 0
+        opacity:        mainWindow._showFlyView ? 0 : 1
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: mainWindow._reducedMotionEnabled ? 0 : (ScreenTools.interactionAnimationDuration + 20)
+                easing.type: Easing.InOutQuad
+            }
+        }
     }
 
     footer: LogReplayStatusBar {
@@ -310,10 +528,81 @@ ApplicationWindow {
         }
     }
 
-    function showToolSelectDialog() {
-        if (mainWindow.allowViewSwitch()) {
-            mainWindow.showIndicatorDrawer(toolSelectComponent, null)
+    Drawer {
+        id:             notificationDrawer
+        edge:           Qt.RightEdge
+        y:              ScreenTools.toolbarHeight
+        width:          Math.min(ScreenTools.defaultFontPixelWidth * 46, mainWindow.width * 0.42)
+        height:         mainWindow.height - y
+        modal:          false
+        interactive:    true
+
+        onOpened: _markAllNotificationsRead()
+
+        background: Rectangle {
+            color:          qgcPal.window
+            border.width:   1
+            border.color:   qgcPal.groupBorder
         }
+
+        contentItem: Item {
+            anchors.fill: parent
+
+            VehicleStatusDrawerContent {
+                anchors.fill: parent
+                drawer:       notificationDrawer
+            }
+        }
+    }
+
+    Drawer {
+        id:             toolSelectDrawer
+        edge:           Qt.RightEdge
+        y:              ScreenTools.toolbarHeight
+        padding:        ScreenTools.defaultFontPixelHeight * 0.5
+        width:          Math.min((toolSelectDrawerLoader.item ? toolSelectDrawerLoader.item.implicitWidth : ScreenTools.defaultFontPixelWidth * 30) + (padding * 2), mainWindow.width * 0.6)
+        height:         Math.min((toolSelectDrawerLoader.item ? toolSelectDrawerLoader.item.implicitHeight : ScreenTools.defaultFontPixelHeight * 20) + (padding * 2), mainWindow.height - y)
+        modal:          false
+        interactive:    true
+
+        background: Rectangle {
+            color:          qgcPal.window
+            border.width:   1
+            border.color:   qgcPal.groupBorder
+        }
+
+        contentItem: Loader {
+            id:                 toolSelectDrawerLoader
+            sourceComponent:    toolSelectComponent
+
+            Binding {
+                target:     toolSelectDrawerLoader.item
+                property:   "drawer"
+                value:      toolSelectDrawer
+            }
+        }
+    }
+
+    function showToolSelectDialog() {
+        if (!mainWindow.allowViewSwitch()) {
+            return
+        }
+
+        if (toolSelectDrawer.visible) {
+            toolSelectDrawer.close()
+        } else {
+            if (notificationDrawer.visible) {
+                notificationDrawer.close()
+            }
+            if (indicatorDrawer.visible) {
+                closeIndicatorDrawer()
+            }
+            toolSelectDrawer.open()
+        }
+    }
+
+    function closeToolSelectDialog() {
+        toolSelectDrawer.close()
     }
 
     Component {
@@ -337,19 +626,6 @@ ApplicationWindow {
                         spacing:        ScreenTools.defaultFontPixelWidth
 
                         SubMenuButton {
-                            height:             toolSelectDialog._toolButtonHeight
-                            Layout.fillWidth:   true
-                            text:               qsTr("Plan Flight")
-                            imageResource:      "/qmlimages/Plan.svg"
-                            onClicked: {
-                                if (mainWindow.allowViewSwitch()) {
-                                    mainWindow.closeIndicatorDrawer()
-                                    mainWindow.showPlanView()
-                                }
-                            }
-                        }
-
-                        SubMenuButton {
                             id:                 analyzeButton
                             height:             toolSelectDialog._toolButtonHeight
                             Layout.fillWidth:   true
@@ -358,7 +634,7 @@ ApplicationWindow {
                             visible:            QGroundControl.corePlugin.showAdvancedUI
                             onClicked: {
                                 if (mainWindow.allowViewSwitch()) {
-                                    mainWindow.closeIndicatorDrawer()
+                                    mainWindow.closeToolSelectDialog()
                                     mainWindow.showAnalyzeTool()
                                 }
                             }
@@ -372,7 +648,7 @@ ApplicationWindow {
                             imageResource:      "/qmlimages/Gears.svg"
                             onClicked: {
                                 if (mainWindow.allowViewSwitch()) {
-                                    mainWindow.closeIndicatorDrawer()
+                                    mainWindow.closeToolSelectDialog()
                                     mainWindow.showVehicleConfig()
                                 }
                             }
@@ -388,7 +664,7 @@ ApplicationWindow {
                             visible:            !QGroundControl.corePlugin.options.combineSettingsAndSetup
                             onClicked: {
                                 if (mainWindow.allowViewSwitch()) {
-                                    drawer.close()
+                                    mainWindow.closeToolSelectDialog()
                                     mainWindow.showSettingsTool()
                                 }
                             }
@@ -439,7 +715,7 @@ ApplicationWindow {
                                             QGroundControl.corePlugin.showTouchAreas = !QGroundControl.corePlugin.showTouchAreas
                                             showTouchAreasNotification.open()
                                         } else if (ScreenTools.isMobile || mouse.modifiers & Qt.ShiftModifier) {
-                                            mainWindow.closeIndicatorDrawer()
+                                            mainWindow.closeToolSelectDialog()
                                             if(!QGroundControl.corePlugin.showAdvancedUI) {
                                                 advancedModeOnConfirmation.open()
                                             } else {
@@ -542,6 +818,7 @@ ApplicationWindow {
 
     function showCriticalVehicleMessage(message) {
         closeIndicatorDrawer()
+        closeToolSelectDialog()
         if (criticalVehicleMessagePopup.visible || QGroundControl.videoManager.fullScreen) {
             // We received additional warning message while an older warning message was still displayed.
             // When the user close the older one drop the message indicator tool so they can see the rest of them.

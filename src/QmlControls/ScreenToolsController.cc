@@ -21,6 +21,19 @@
 #include <QtGui/QFontDatabase>
 #include <QtGui/QFontMetrics>
 #include <QtGui/QInputDevice>
+#include <QtCore/QStringList>
+
+static QString firstAvailableFont(const QStringList& preferredFamilies)
+{
+    const QStringList availableFamilies = QFontDatabase().families();
+    for (const QString& family : preferredFamilies) {
+        if (availableFamilies.contains(family, Qt::CaseInsensitive)) {
+            return family;
+        }
+    }
+
+    return QStringLiteral("Open Sans");
+}
 
 #if defined(Q_OS_IOS)
 #include <sys/utsname.h>
@@ -83,7 +96,48 @@ QString ScreenToolsController::normalFontFamily()
         return QStringLiteral("NanumGothic");
     }
 
-    return QStringLiteral("Open Sans");
+    if (isWindows()) {
+        return firstAvailableFont({
+            QStringLiteral("Segoe UI Variable Text"),
+            QStringLiteral("Segoe UI"),
+            QStringLiteral("Inter"),
+            QStringLiteral("Roboto"),
+            QStringLiteral("Open Sans")
+        });
+    }
+
+    if (isMacOS() || isiOS()) {
+        return firstAvailableFont({
+            QStringLiteral("SF Pro Text"),
+            QStringLiteral("Helvetica Neue"),
+            QStringLiteral("Inter"),
+            QStringLiteral("Open Sans")
+        });
+    }
+
+    if (isAndroid()) {
+        return firstAvailableFont({
+            QStringLiteral("Roboto"),
+            QStringLiteral("Noto Sans"),
+            QStringLiteral("Inter"),
+            QStringLiteral("Open Sans")
+        });
+    }
+
+    if (isLinux()) {
+        return firstAvailableFont({
+            QStringLiteral("Inter"),
+            QStringLiteral("Noto Sans"),
+            QStringLiteral("Ubuntu"),
+            QStringLiteral("DejaVu Sans"),
+            QStringLiteral("Open Sans")
+        });
+    }
+
+    return firstAvailableFont({
+        QStringLiteral("Inter"),
+        QStringLiteral("Open Sans")
+    });
 }
 
 double ScreenToolsController::defaultFontDescent(int pointSize)

@@ -79,10 +79,36 @@ Item {
     }
 
     function toggleSelect(vehicleId) {
-        if (!vehicleSelected(vehicleId)) {
+        var vehicle = QGroundControl.multiVehicleManager.getVehicleById(vehicleId)
+        if (!vehicle) {
+            return
+        }
+
+        var wasSelected = vehicleSelected(vehicleId)
+
+        if (!wasSelected) {
+            QGroundControl.multiVehicleManager.activeVehicle = vehicle
             selectVehicle(vehicleId)
-        } else {
-            deselectVehicle(vehicleId)
+            return
+        }
+
+        deselectVehicle(vehicleId)
+
+        var activeVehicle = QGroundControl.multiVehicleManager.activeVehicle
+        if (activeVehicle && activeVehicle.id === vehicleId) {
+            if (selectedVehicles.count > 0) {
+                QGroundControl.multiVehicleManager.activeVehicle = selectedVehicles.get(selectedVehicles.count - 1)
+                return
+            }
+
+            var vehicles = QGroundControl.multiVehicleManager.vehicles
+            for (var i = 0; i < vehicles.count; i++) {
+                var candidate = vehicles.get(i)
+                if (candidate && candidate.id !== vehicleId) {
+                    QGroundControl.multiVehicleManager.activeVehicle = candidate
+                    return
+                }
+            }
         }
     }
 
@@ -103,7 +129,11 @@ Item {
 
     function vehicleSelected(vehicleId) {
         for (var i = 0; i < selectedVehicles.count; i++ ) {
-            var currentId = selectedVehicles.get(i).id
+            var selectedVehicle = selectedVehicles.get(i)
+            if (!selectedVehicle) {
+                continue
+            }
+            var currentId = selectedVehicle.id
             if (vehicleId === currentId) {
                 return true
             }

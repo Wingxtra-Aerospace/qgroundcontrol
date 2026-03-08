@@ -12,6 +12,7 @@ TextField {
     selectedTextColor:  qgcPal.textField
     activeFocusOnPress: true
     antialiasing:       true
+    hoverEnabled:       !ScreenTools.isMobile
     font.pointSize:     ScreenTools.defaultFontPointSize
     font.family:        ScreenTools.normalFontFamily
     inputMethodHints:   numericValuesOnly && !ScreenTools.isiOS ?
@@ -83,12 +84,21 @@ TextField {
     }
 
     background: Rectangle {
-        border.width:   control.validationError ? 2 : (qgcPal.globalTheme === QGCPalette.Light ? 1 : 0)
-        border.color:   control.validationError ? qgcPal.colorRed : qgcPal.buttonBorder
-        radius:         ScreenTools.buttonBorderRadius
-        color:          qgcPal.textField
+        border.width:   control.validationError ? 2 : 1
+        border.color:   control.validationError ? qgcPal.colorRed : (control.activeFocus ? qgcPal.colorBlue : qgcPal.buttonBorder)
+        radius:         ScreenTools.panelCornerRadius * 0.72
+        color:          control.activeFocus ? qgcPal.windowShadeLight : qgcPal.textField
         implicitWidth:  ScreenTools.implicitTextFieldWidth
         implicitHeight: ScreenTools.implicitTextFieldHeight
+        antialiasing:   true
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
+
+        Behavior on border.color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
 
         RowLayout {
             id:                     unitsHelpLayout

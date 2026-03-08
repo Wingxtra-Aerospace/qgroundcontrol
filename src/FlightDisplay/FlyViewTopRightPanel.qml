@@ -24,15 +24,20 @@ Rectangle {
     id:             topRightPanel
     width:          contentWidth
     height:         Math.max(contentHeight, minimumHeight)
-    color:          qgcPal.toolbarBackground
-    radius:         ScreenTools.defaultFontPixelHeight / 2
+    color:          qgcPal.globalTheme === QGCPalette.Light ? qgcPal.toolbarBackground : Qt.rgba(0.035, 0.102, 0.188, 0.84)
+    radius:         ScreenTools.panelCornerRadius
+    border.width:   1
+    border.color:   qgcPal.groupBorder
     visible:        !QGroundControl.videoManager.fullScreen && _multipleVehicles && _settingEnableMVPanel
     clip:           true
+    antialiasing:   true
 
     property bool _settingEnableMVPanel:    QGroundControl.settingsManager.appSettings.enableMultiVehiclePanel.value
     property bool  _multipleVehicles:       QGroundControl.multiVehicleManager.vehicles.count > 1
+    property bool  showCameraCard:          true
     property var   vehicles:                QGroundControl.multiVehicleManager.vehicles
     property var   selectedVehicles:        QGroundControl.multiVehicleManager.selectedVehicles
+    property bool  cameraPageAvailable:     showCameraCard && !!globals.activeVehicle
     property real  contentWidth:            Math.max(
                                                 multiVehicleList.implicitWidth,
                                                 swipeViewContainer.implicitWidth
@@ -45,6 +50,16 @@ Rectangle {
     property real  maximumHeight
 
     QGCPalette { id: qgcPal }
+
+    onCameraPageAvailableChanged: {
+        if (!cameraPageAvailable && swipePages.currentIndex !== 0) {
+            swipePages.currentIndex = 0
+        }
+    }
+
+    Behavior on color {
+        ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+    }
 
     DeadMouseArea {
         anchors.fill:       parent
@@ -60,11 +75,15 @@ Rectangle {
             id: selectedVehiclesLabel
             text: {
                 let ids = Array.from({length: selectedVehicles.count}, (_, i) =>
-                    selectedVehicles.get(i).id
-                ).sort((a, b) => a - b)
+                    selectedVehicles.get(i)
+                )
+                .filter(vehicle => vehicle)
+                .map(vehicle => vehicle.id)
+                .sort((a, b) => a - b)
                 .join(", ")
                 return qsTr("Selected: ") + ids
             }
+            font.weight: Font.Medium
         }
 
         MultiVehicleList {
@@ -116,6 +135,7 @@ Rectangle {
             QGCSwipeView {
                 id:                swipePages
                 anchors.fill:      parent
+                interactive:       cameraPageAvailable
                 spacing:           ScreenTools.defaultFontPixelHeight
                 implicitHeight:    Math.max(buttonsPage.implicitHeight, photoVideoPage.implicitHeight)
                 implicitWidth:     Math.max(buttonsPage.implicitWidth, photoVideoPage.implicitWidth)
@@ -219,7 +239,7 @@ Rectangle {
                     Loader {
                         id:                         photoVideoControlLoader
                         anchors.horizontalCenter:   parent.horizontalCenter
-                        sourceComponent:            globals.activeVehicle ? photoVideoControlComponent : undefined
+                        sourceComponent:            cameraPageAvailable ? photoVideoControlComponent : undefined
 
                         property real rightEdgeCenterInset: visible ? parent.width - x : 0
 
@@ -235,7 +255,8 @@ Rectangle {
 
             QGCPageIndicator {
                 id:                       pageIndicator
-                count:                    swipePages.count
+                visible:                  cameraPageAvailable
+                count:                    cameraPageAvailable ? swipePages.count : 1
                 currentIndex:             swipePages.currentIndex
                 anchors.bottom:           parent.bottom
                 anchors.horizontalCenter: parent.horizontalCenter

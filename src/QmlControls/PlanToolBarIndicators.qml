@@ -27,8 +27,18 @@ Item {
 
     property bool   _controllerValid:           _planMasterController !== undefined && _planMasterController !== null
     property bool   _controllerOffline:         _controllerValid ? _planMasterController.offline : true
+    property var    _managerVehicle:            _controllerValid ? _planMasterController.managerVehicle : null
+    property bool   _managerVehicleOffline:     _managerVehicle ? _managerVehicle.isOfflineEditingVehicle : true
     property var    _controllerDirty:           _controllerValid ? _planMasterController.dirty : false
     property var    _controllerSyncInProgress:  _controllerValid ? _planMasterController.syncInProgress : false
+    property string _uploadTargetText: {
+        if (!_managerVehicle) {
+            return qsTr("No Vehicle")
+        }
+        return _managerVehicleOffline
+            ? qsTr("Offline Editing Vehicle")
+            : qsTr("Vehicle %1").arg(_managerVehicle.id)
+    }
 
     property bool   _currentMissionItemValid:   _currentMissionItem && _currentMissionItem !== undefined && _currentMissionItem !== null
     property bool   _curreItemIsFlyThrough:     _currentMissionItemValid && _currentMissionItem.specifiesCoordinate && !_currentMissionItem.isStandaloneCoordinate

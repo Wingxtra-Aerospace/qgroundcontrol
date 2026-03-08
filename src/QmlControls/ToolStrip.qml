@@ -17,10 +17,16 @@ import QGroundControl.Controls
 
 Rectangle {
     id:         _root
-    color:      qgcPal.toolbarBackground
-    width:      ScreenTools.defaultFontPixelWidth * 8
+    color:      qgcPal.globalTheme === QGCPalette.Light ? qgcPal.toolbarBackground : Qt.rgba(0.035, 0.102, 0.188, 0.86)
+    width:      ScreenTools.defaultFontPixelWidth * 8.4
     height:     Math.min(maxHeight, toolStripColumn.height + (flickable.anchors.margins * 2))
-    radius:     ScreenTools.defaultFontPixelWidth / 2
+    radius:     ScreenTools.panelCornerRadius
+    border.width: qgcPal.globalTheme === QGCPalette.Light ? 1 : 1
+    border.color: qgcPal.groupBorder
+
+    Behavior on color {
+        ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+    }
 
     property alias  model:              repeater.model
     property real   maxHeight           ///< Maximum height for control, determines whether text is hidden to make control shorter
@@ -46,7 +52,7 @@ Rectangle {
 
     QGCFlickable {
         id:                 flickable
-        anchors.margins:    ScreenTools.defaultFontPixelWidth * 0.4
+        anchors.margins:    ScreenTools.defaultFontPixelWidth * 0.45
         anchors.top:        parent.top
         anchors.left:       parent.left
         anchors.right:      parent.right
@@ -59,7 +65,7 @@ Rectangle {
             id:             toolStripColumn
             anchors.left:   parent.left
             anchors.right:  parent.right
-            spacing:        ScreenTools.defaultFontPixelWidth * 0.25
+            spacing:        ScreenTools.defaultFontPixelWidth * 0.35
 
             QGCLabel {
                 id:                     titleLabel
@@ -78,7 +84,7 @@ Rectangle {
                     anchors.left:       toolStripColumn.left
                     anchors.right:      toolStripColumn.right
                     height:             width
-                    radius:             ScreenTools.defaultFontPixelWidth / 2
+                    radius:             ScreenTools.panelCornerRadius * 0.85
                     fontPointSize:      _root.fontSize
                     toolStripAction:    modelData
                     dropPanel:          _dropPanel

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <QtCore/QObject>
+#include <QtGui/QColor>
 #include <QtQml/QQmlComponent>
 
 class ToolStripAction : public QObject
@@ -32,6 +33,8 @@ public:
     Q_PROPERTY(QString          iconSource          READ iconSource             WRITE setIconSource             NOTIFY iconSourceChanged)
     Q_PROPERTY(QString          alternateIconSource READ alternateIconSource    WRITE setAlternateIconSource    NOTIFY alternateIconSourceChanged)
     Q_PROPERTY(QQmlComponent*   dropPanelComponent  READ dropPanelComponent     WRITE setDropPanelComponent     NOTIFY dropPanelComponentChanged)
+    Q_PROPERTY(bool             useCheckedBackgroundColor READ useCheckedBackgroundColor WRITE setUseCheckedBackgroundColor NOTIFY useCheckedBackgroundColorChanged)
+    Q_PROPERTY(QColor           checkedBackgroundColor    READ checkedBackgroundColor    WRITE setCheckedBackgroundColor    NOTIFY checkedBackgroundColorChanged)
 
     bool            enabled             (void) const { return _enabled; }
     bool            visible             (void) const { return _visible; }
@@ -46,6 +49,8 @@ public:
     QString         iconSource          (void) const { return _iconSource; }
     QString         alternateIconSource (void) const { return _alternateIconSource; }
     QQmlComponent* dropPanelComponent   (void) const { return _dropPanelComponent; }
+    bool            useCheckedBackgroundColor (void) const { return _useCheckedBackgroundColor; }
+    QColor          checkedBackgroundColor    (void) const { return _checkedBackgroundColor; }
 
     void setEnabled             (bool enabled);
     void setVisible             (bool visible);
@@ -60,6 +65,8 @@ public:
     void setIconSource          (const QString& iconSource);
     void setAlternateIconSource (const QString& alternateIconSource);
     void setDropPanelComponent  (QQmlComponent* dropPanelComponent);
+    void setUseCheckedBackgroundColor (bool useCheckedBackgroundColor);
+    void setCheckedBackgroundColor    (const QColor& checkedBackgroundColor);
 
 signals:
     void enabledChanged             (bool enabled);
@@ -76,6 +83,8 @@ signals:
     void alternateIconSourceChanged (QString alternateIconSource);
     void triggered                  (QObject* source);
     void dropPanelComponentChanged  (void);
+    void useCheckedBackgroundColorChanged (bool useCheckedBackgroundColor);
+    void checkedBackgroundColorChanged    (QColor checkedBackgroundColor);
 
 protected:
     bool            _enabled =              true;
@@ -91,4 +100,6 @@ protected:
     QString         _iconSource;
     QString         _alternateIconSource;
     QQmlComponent*  _dropPanelComponent =   nullptr;
+    bool            _useCheckedBackgroundColor = false;
+    QColor          _checkedBackgroundColor;
 };

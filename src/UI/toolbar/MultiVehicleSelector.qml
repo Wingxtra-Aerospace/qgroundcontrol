@@ -74,12 +74,19 @@ RowLayout {
                         model: _vehicleModel
 
                         QGCButton {
-                            text:               modelData
+                            text:               modelData.label
                             Layout.fillWidth:   true
 
                             onClicked: {
-                                var vehicleId = modelData.split(" ")[1]
-                                var vehicle = QGroundControl.multiVehicleManager.getVehicleById(vehicleId)
+                                var vehicle = modelData.vehicle
+                                if (!vehicle) {
+                                    mainWindow.closeIndicatorDrawer()
+                                    return
+                                }
+                                var vehicleId = vehicle.id
+
+                                QGroundControl.multiVehicleManager.deselectAllVehicles()
+                                QGroundControl.multiVehicleManager.selectVehicle(vehicleId)
                                 QGroundControl.multiVehicleManager.activeVehicle = vehicle
                                 mainWindow.closeIndicatorDrawer()
                             }
@@ -110,7 +117,10 @@ RowLayout {
         if (_multipleVehicles) {
             for (var i = 0; i < QGroundControl.multiVehicleManager.vehicles.count; i++) {
                 var vehicle = QGroundControl.multiVehicleManager.vehicles.get(i)
-                newModel.push(qsTr("Vehicle") + " " + vehicle.id)
+                newModel.push({
+                                  label: qsTr("Vehicle") + " " + vehicle.id,
+                                  vehicle: vehicle
+                              })
             }
         }
         _vehicleModel = newModel

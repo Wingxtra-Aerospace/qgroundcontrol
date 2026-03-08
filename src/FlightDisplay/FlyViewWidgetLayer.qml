@@ -16,11 +16,11 @@ import QtLocation
 import QtPositioning
 import QtQuick.Window
 import QtQml.Models
+import QtCore
 
 import QGroundControl
 import QGroundControl.Controls
 import QGroundControl.Controllers
-import QGroundControl.Controls
 import QGroundControl.FactSystem
 import QGroundControl.FlightDisplay
 import QGroundControl.FlightMap
@@ -38,6 +38,7 @@ Item {
     property var    mapControl3D
     property bool   isViewer3DOpen:         false
     readonly property var _mapScaleControl: (isViewer3DOpen && mapControl3D) ? mapControl3D : mapControl
+    readonly property var _activeViewControl: _mapScaleControl
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property var    _planMasterController:  globals.planMasterControllerFlyView
@@ -47,14 +48,46 @@ Item {
     property var    _guidedController:      globals.guidedControllerFlyView
     property real   _margins:               ScreenTools.defaultFontPixelWidth / 2
     property real   _toolsMargin:           ScreenTools.defaultFontPixelWidth * 0.75
+    property real   _rightDrawerOffset:     mainWindow ? mainWindow._rightSideDrawerOffset : 0
     property rect   _centerViewport:        Qt.rect(0, 0, width, height)
     property real   _rightPanelWidth:       ScreenTools.defaultFontPixelWidth * 30
     property alias  _gripperMenu:           gripperOptions
     property real   _layoutMargin:          ScreenTools.defaultFontPixelWidth * 0.75
-    property bool   _layoutSpacing:         ScreenTools.defaultFontPixelWidth
+    property real   _layoutSpacing:         ScreenTools.defaultFontPixelWidth
     property bool   _showSingleVehicleUI:   true
+    property bool   _pendingPreflightPopupOpen: false
+    property bool   _showCameraControls:    true
 
     property bool utmspActTrigger
+
+    QGCPalette { id: qgcPal }
+
+    function _openPreFlightChecklist() {
+        if (!QGroundControl.multiVehicleManager.activeVehicle &&
+            QGroundControl.multiVehicleManager.vehicles &&
+            QGroundControl.multiVehicleManager.vehicles.count > 0) {
+            QGroundControl.multiVehicleManager.activeVehicle = QGroundControl.multiVehicleManager.vehicles.get(0)
+        }
+
+        if (!preFlightChecklistLoader.active) {
+            _pendingPreflightPopupOpen = true
+            preFlightChecklistLoader.active = true
+        }
+        if (preFlightChecklistLoader.item) {
+            preFlightChecklistLoader.item.open()
+            _pendingPreflightPopupOpen = false
+        }
+    }
+
+    function openHudCustomizationPanel() {
+        if (!hudCustomizationPopup.visible) {
+            hudCustomizationPopup.open()
+        }
+    }
+
+    function openPreFlightChecklist() {
+        _openPreFlightChecklist()
+    }
 
     QGCToolInsets {
         id:                     _totalToolInsets
@@ -77,8 +110,9 @@ Item {
         anchors.top:            parent.top
         anchors.right:          parent.right
         anchors.topMargin:      _layoutMargin
-        anchors.rightMargin:    _layoutMargin
+        anchors.rightMargin:    _layoutMargin + _rightDrawerOffset
         maximumHeight:          parent.height - (bottomRightRowLayout.height + _margins * 5)
+        showCameraCard:         _showCameraControls
 
         property real topEdgeRightInset:    height + _layoutMargin
         property real rightEdgeTopInset:    width + _layoutMargin
@@ -89,10 +123,16 @@ Item {
         id:                 topRightColumnLayout
         anchors.margins:    _layoutMargin
         anchors.top:        parent.top
+        anchors.topMargin:  _layoutMargin + hudCustomizeButton.height + (ScreenTools.defaultFontPixelHeight * 0.45)
         anchors.bottom:     bottomRightRowLayout.top
         anchors.right:      parent.right
+        anchors.rightMargin:_layoutMargin + _rightDrawerOffset + (topRightPanel.visible ? topRightPanel.width + (ScreenTools.defaultFontPixelWidth * 0.35) : 0)
         spacing:            _layoutSpacing
-        visible:           !topRightPanel.visible
+        visible:            !QGroundControl.videoManager.fullScreen
+        showTerrainCard:    true
+        showCameraCard:     _showCameraControls && !topRightPanel.visible
+        showPreflightCard:  false
+        openChecklistFn:    _openPreFlightChecklist
 
         property real topEdgeRightInset:    childrenRect.height + _layoutMargin
         property real rightEdgeTopInset:    width + _layoutMargin
@@ -104,11 +144,147 @@ Item {
         anchors.margins:    _layoutMargin
         anchors.bottom:     parent.bottom
         anchors.right:      parent.right
+        anchors.rightMargin:_layoutMargin
+        z:                  QGroundControl.zOrderWidgets + 1
         spacing:            _layoutSpacing
-
         property real bottomEdgeRightInset:     height + _layoutMargin
         property real bottomEdgeCenterInset:    bottomEdgeRightInset
         property real rightEdgeBottomInset:     width + _layoutMargin
+    }
+
+    Rectangle {
+        id:                     hudCustomizeButton
+        anchors.top:            parent.top
+        anchors.right:          parent.right
+        anchors.topMargin:      _layoutMargin
+        anchors.rightMargin:    _layoutMargin + _rightDrawerOffset + (topRightPanel.visible ? topRightPanel.width + (ScreenTools.defaultFontPixelWidth * 0.35) : 0)
+        width:                  ScreenTools.defaultFontPixelHeight * 2.15
+        height:                 width
+        radius:                 ScreenTools.buttonBorderRadius
+        color:                  qgcPal.button
+        border.width:           1
+        border.color:           qgcPal.groupBorder
+        z:                      QGroundControl.zOrderWidgets + 1
+        visible:                !QGroundControl.videoManager.fullScreen
+        antialiasing:           true
+
+        QGCColoredImage {
+            anchors.centerIn:       parent
+            width:                  parent.width * 0.54
+            height:                 width
+            sourceSize.height:      height
+            source:                 "/qmlimages/Gears.svg"
+            fillMode:               Image.PreserveAspectFit
+            color:                  qgcPal.buttonText
+        }
+
+        MouseArea {
+            anchors.fill:   parent
+            hoverEnabled:   !ScreenTools.isMobile
+            onClicked: {
+                if (hudCustomizationPopup.visible) {
+                    hudCustomizationPopup.close()
+                } else {
+                    hudCustomizationPopup.open()
+                }
+            }
+        }
+    }
+
+    Item {
+        id:                     hudPopupDismissLayer
+        anchors.fill:           parent
+        z:                      hudCustomizeButton.z + 1
+        visible:                hudCustomizationPopup.visible
+
+        MouseArea {
+            anchors.fill: parent
+
+            onPressed: {
+                var insidePopup = mouse.x >= hudCustomizationPopup.x &&
+                                  mouse.x <= (hudCustomizationPopup.x + hudCustomizationPopup.width) &&
+                                  mouse.y >= hudCustomizationPopup.y &&
+                                  mouse.y <= (hudCustomizationPopup.y + hudCustomizationPopup.height)
+                if (insidePopup) {
+                    mouse.accepted = false
+                } else {
+                    hudCustomizationPopup.close()
+                    mouse.accepted = true
+                }
+            }
+        }
+    }
+
+    Popup {
+        id:                     hudCustomizationPopup
+        x:                      Math.max(ScreenTools.defaultFontPixelWidth, hudCustomizeButton.x - width + hudCustomizeButton.width)
+        y:                      hudCustomizeButton.y + hudCustomizeButton.height + (ScreenTools.defaultFontPixelHeight * 0.4)
+        width:                  ScreenTools.defaultFontPixelWidth * 29
+        modal:                  false
+        focus:                  true
+        closePolicy:            Popup.CloseOnEscape
+        padding:                ScreenTools.defaultFontPixelHeight * 0.8
+
+        background: Rectangle {
+            color:          qgcPal.window
+            radius:         ScreenTools.panelCornerRadius
+            border.width:   1
+            border.color:   qgcPal.groupBorder
+            opacity:        0.96
+        }
+
+        contentItem: ColumnLayout {
+            spacing: ScreenTools.defaultDialogControlSpacing
+
+            QGCLabel {
+                text:           qsTr("View Controls")
+                font.pointSize: ScreenTools.mediumFontPointSize
+                font.weight:    Font.DemiBold
+            }
+
+            QGCButton {
+                Layout.fillWidth:   true
+                text:               (_activeViewControl && _activeViewControl.followVehicleEnabled) ? qsTr("Following") : qsTr("Free Pan")
+                enabled:            _activeViewControl && (typeof _activeViewControl.toggleFollowVehicle === "function")
+                onClicked: {
+                    if (_activeViewControl && (typeof _activeViewControl.toggleFollowVehicle === "function")) {
+                        _activeViewControl.toggleFollowVehicle()
+                    }
+                }
+            }
+
+            QGCButton {
+                Layout.fillWidth:   true
+                text:               (_activeViewControl && _activeViewControl.declutterEnabled) ? qsTr("Declutter On") : qsTr("Declutter Off")
+                enabled:            _activeViewControl && (typeof _activeViewControl.toggleDeclutter === "function")
+                onClicked: {
+                    if (_activeViewControl && (typeof _activeViewControl.toggleDeclutter === "function")) {
+                        _activeViewControl.toggleDeclutter()
+                    }
+                }
+            }
+
+            QGCButton {
+                Layout.fillWidth:   true
+                text:               _showCameraControls ? qsTr("Camera Controls On") : qsTr("Camera Controls Off")
+                onClicked: {
+                    _showCameraControls = !_showCameraControls
+                }
+            }
+
+            QGCButton {
+                Layout.fillWidth:   true
+                text:               qsTr("Center Vehicle")
+                enabled:            _activeViewControl &&
+                                    _activeViewControl.canCenterVehicle &&
+                                    (typeof _activeViewControl.centerOnActiveVehicle === "function")
+                onClicked: {
+                    if (_activeViewControl && (typeof _activeViewControl.centerOnActiveVehicle === "function")) {
+                        _activeViewControl.centerOnActiveVehicle()
+                    }
+                }
+            }
+        }
     }
 
     FlyViewMissionCompleteDialog {
@@ -184,10 +360,7 @@ Item {
         visible:                !QGroundControl.videoManager.fullScreen
 
         onDisplayPreFlightChecklist: {
-            if (!preFlightChecklistLoader.active) {
-                preFlightChecklistLoader.active = true
-            }
-            preFlightChecklistLoader.item.open()
+            _openPreFlightChecklist()
         }
 
         property real topEdgeLeftInset:     visible ? y + height : 0
@@ -223,7 +396,13 @@ Item {
     Loader {
         id: preFlightChecklistLoader
         sourceComponent: preFlightChecklistPopup
-        active: false
+        active: true
+        onLoaded: {
+            if (_pendingPreflightPopupOpen && item) {
+                item.open()
+                _pendingPreflightPopupOpen = false
+            }
+        }
     }
 
     Component {

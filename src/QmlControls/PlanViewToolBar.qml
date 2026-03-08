@@ -28,6 +28,9 @@ Rectangle {
     property var    planMasterController
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
+    property var    _managerVehicle:        planMasterController ? planMasterController.managerVehicle : null
+    property bool   _managerVehicleOffline: _managerVehicle ? _managerVehicle.isOfflineEditingVehicle : true
+    property string _uploadTargetText:      !_managerVehicle ? qsTr("No Vehicle") : (_managerVehicleOffline ? qsTr("Offline Editing Vehicle") : qsTr("Vehicle %1").arg(_managerVehicle.id))
     property real   _controllerProgressPct: planMasterController.missionController.progressPct
     property string _dateTimeText:          ""
 
@@ -77,7 +80,7 @@ Rectangle {
         anchors.bottomMargin:   1
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
-        anchors.right:          dateTimeContainer.left
+        anchors.right:          uploadTargetContainer.left
         anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.5
         contentWidth:           toolIndicators.width
         flickableDirection:     Flickable.HorizontalFlick
@@ -87,6 +90,43 @@ Rectangle {
             anchors.top:            parent.top
             anchors.bottom:         parent.bottom
             planMasterController:   _root.planMasterController
+        }
+    }
+
+    Rectangle {
+        id:                     uploadTargetContainer
+        anchors.right:          dateTimeContainer.left
+        anchors.top:            parent.top
+        anchors.bottom:         parent.bottom
+        anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.42
+        anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.5
+        radius:                 ScreenTools.defaultFontPixelHeight * 0.2
+        color:                  Qt.rgba(0, 0, 0, 0.2)
+        border.width:           qgcPal.globalTheme === QGCPalette.Light ? 1 : 0
+        border.color:           Qt.rgba(1, 1, 1, 0.2)
+        width:                  Math.max(uploadTargetTitleLabel.implicitWidth, uploadTargetValueLabel.implicitWidth) + (ScreenTools.defaultFontPixelWidth * 1.8)
+
+        Column {
+            anchors.centerIn:   parent
+            spacing:            0
+
+            QGCLabel {
+                id:                 uploadTargetTitleLabel
+                text:               qsTr("Upload Target")
+                font.pointSize:     ScreenTools.smallFontPointSize * 1.2
+                opacity:            0.75
+                horizontalAlignment: Text.AlignHCenter
+                width:              implicitWidth
+            }
+
+            QGCLabel {
+                id:                 uploadTargetValueLabel
+                text:               _uploadTargetText
+                font.pointSize:     ScreenTools.defaultFontPointSize * 1.2
+                font.weight:        Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                width:              implicitWidth
+            }
         }
     }
 

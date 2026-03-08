@@ -27,8 +27,9 @@ Rectangle {
 
     property var    _activeVehicle:     QGroundControl.multiVehicleManager.activeVehicle
     property bool   _communicationLost: _activeVehicle ? _activeVehicle.vehicleLinkManager.communicationLost : false
-    property color  _mainStatusBGColor: qgcPal.brandingPurple
+    property color  _mainStatusBGColor: qgcPal.brandingBlue
     property string _dateTimeText:      ""
+    property int    _unreadNotifications: mainWindow._notificationUnreadCount
 
     function _updateDateTimeText() {
         _dateTimeText = Qt.formatDateTime(new Date(), "ddd, dd MMM yyyy  HH:mm:ss")
@@ -39,6 +40,10 @@ Rectangle {
     }
 
     QGCPalette { id: qgcPal }
+
+    Behavior on color {
+        ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+    }
 
     /// Bottom single pixel divider
     Rectangle {
@@ -68,12 +73,21 @@ Rectangle {
         anchors.bottom:         parent.bottom
         spacing:                ScreenTools.defaultFontPixelWidth / 2
 
-        QGCToolBarButton {
+        Item {
             id:                     currentButton
             Layout.preferredHeight: viewButtonRow.height
-            icon.source:            "/res/QGCLogoFull.svg"
-            logo:                   true
-            onClicked:              mainWindow.showToolSelectDialog()
+            Layout.preferredWidth:  logoImage.width + (ScreenTools.defaultFontPixelWidth * 2)
+
+            QGCColoredImage {
+                id:                     logoImage
+                anchors.centerIn:       parent
+                height:                 ScreenTools.defaultFontPixelHeight * 1.8
+                width:                  height
+                sourceSize.height:      height
+                fillMode:               Image.PreserveAspectFit
+                color:                  "transparent"
+                source:                 "/res/QGCLogoFull.svg"
+            }
         }
 
         MainStatusIndicator {
@@ -97,11 +111,68 @@ Rectangle {
         anchors.bottomMargin:   1
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
-        anchors.right:          dateTimeContainer.left
+        anchors.right:          quickActionRow.left
         contentWidth:           toolIndicators.width
         flickableDirection:     Flickable.HorizontalFlick
 
         FlyViewToolBarIndicators { id: toolIndicators }
+    }
+
+    RowLayout {
+        id:                     quickActionRow
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right:          dateTimeContainer.left
+        anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.6
+        spacing:                ScreenTools.defaultFontPixelWidth * 0.25
+
+        Item {
+            Layout.preferredWidth: notificationButton.width
+            Layout.preferredHeight: notificationButton.height
+
+            QGCToolBarButton {
+                id:         notificationButton
+                icon.source:"/InstrumentValueIcons/announcement.svg"
+                iconScale:  0.72
+                iconColor:  _activeVehicle && _activeVehicle.messageTypeError
+                                ? qgcPal.colorRed
+                                : (_activeVehicle && _activeVehicle.messageTypeWarning
+                                    ? qgcPal.colorOrange
+                                    : (notificationButton._active ? qgcPal.buttonHighlightText : qgcPal.buttonText))
+                text:       ""
+                onClicked:  mainWindow.toggleNotificationCenter()
+            }
+
+            Rectangle {
+                anchors.right:          parent.right
+                anchors.top:            parent.top
+                anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.2
+                anchors.topMargin:      ScreenTools.defaultFontPixelHeight * 0.2
+                width:                  Math.max(ScreenTools.defaultFontPixelHeight * 0.95, unreadLabel.implicitWidth + ScreenTools.defaultFontPixelWidth * 0.35)
+                height:                 ScreenTools.defaultFontPixelHeight * 0.95
+                radius:                 height / 2
+                color:                  qgcPal.colorOrange
+                border.width:           1
+                border.color:           qgcPal.toolbarBackground
+                visible:                _unreadNotifications > 0
+
+                QGCLabel {
+                    id:                 unreadLabel
+                    anchors.centerIn:   parent
+                    text:               _unreadNotifications > 99 ? "99+" : _unreadNotifications
+                    font.pointSize:     ScreenTools.smallFontPointSize * 0.92
+                    font.weight:        Font.DemiBold
+                    color:              "white"
+                }
+            }
+        }
+
+        QGCToolBarButton {
+            id:         commandPaletteButton
+            icon.source:"/InstrumentValueIcons/menu.svg"
+            iconScale:  0.72
+            text:       ""
+            onClicked:  mainWindow.showToolSelectDialog()
+        }
     }
 
     //-------------------------------------------------------------------------
@@ -112,7 +183,7 @@ Rectangle {
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
         anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.66
-        anchors.rightMargin:    dateTimeContainer.width + (ScreenTools.defaultFontPixelWidth * 0.5)
+        anchors.rightMargin:    dateTimeContainer.width + quickActionRow.width + (ScreenTools.defaultFontPixelWidth * 0.75)
         visible:                _activeVehicle && !_communicationLost && _activeBrandImage.length > 0 && x > (toolsFlickable.x + toolsFlickable.contentWidth + ScreenTools.defaultFontPixelWidth)
         fillMode:               Image.PreserveAspectFit
         source:                 _activeBrandImage
@@ -167,12 +238,17 @@ Rectangle {
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
         anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.42
-        radius:                 ScreenTools.defaultFontPixelHeight * 0.2
-        color:                  Qt.rgba(0, 0, 0, 0.25)
-        border.width:           qgcPal.globalTheme === QGCPalette.Light ? 1 : 0
-        border.color:           Qt.rgba(1, 1, 1, 0.2)
+        radius:                 ScreenTools.panelCornerRadius * 0.62
+        color:                  qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0, 0, 0, 0.06) : Qt.rgba(0.02, 0.06, 0.12, 0.58)
+        border.width:           1
+        border.color:           qgcPal.groupBorder
         width:                  dateTimeLabel.implicitWidth + (ScreenTools.defaultFontPixelWidth * 1.8)
         visible:                _dateTimeText.length > 0
+        antialiasing:           true
+
+        Behavior on color {
+            ColorAnimation { duration: ScreenTools.interactionAnimationDuration }
+        }
 
         QGCLabel {
             id:                         dateTimeLabel
@@ -182,6 +258,7 @@ Rectangle {
             font.family:                ScreenTools.normalFontFamily
             color:                      qgcPal.buttonText
             verticalAlignment:          Text.AlignVCenter
+            font.weight:                Font.Medium
         }
     }
 

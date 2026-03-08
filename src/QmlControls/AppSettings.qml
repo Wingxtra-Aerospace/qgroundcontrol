@@ -122,6 +122,17 @@ Rectangle {
     }
 
     Rectangle {
+        anchors.fill:               buttonList
+        anchors.margins:            -(_horizontalMargin * 0.45)
+        radius:                     ScreenTools.panelCornerRadius
+        color:                      qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.02) : Qt.rgba(0.067, 0.149, 0.271, 0.55)
+        border.width:               1
+        border.color:               qgcPal.groupBorder
+        z:                          -1
+        antialiasing:               true
+    }
+
+    Rectangle {
         id:                     divider
         anchors.topMargin:      _verticalMargin
         anchors.bottomMargin:   _verticalMargin
@@ -130,7 +141,8 @@ Rectangle {
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
         width:                  1
-        color:                  qgcPal.windowShade
+        color:                  qgcPal.groupBorder
+        opacity:                qgcPal.globalTheme === QGCPalette.Light ? 1 : 0.65
     }
 
     //-- Panel Contents
@@ -144,6 +156,11 @@ Rectangle {
         anchors.right:          parent.right
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
+        opacity:                status === Loader.Ready ? 1 : 0
+
+        Behavior on opacity {
+            NumberAnimation { duration: ScreenTools.interactionAnimationDuration + 40 }
+        }
     }
 }
 
