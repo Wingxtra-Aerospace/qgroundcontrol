@@ -161,26 +161,31 @@ void MissionController::_newMissionItemsAvailableFromVehicle(bool removeAllReque
         _updateContainsItems(); // This will clear containsItems which will be set again below. This will re-pop Start Mission confirmation.
 
         QmlObjectListModel* newControllerMissionItems = new QmlObjectListModel(this);
-        const QList<MissionItem*>& newMissionItems = _missionManager->missionItems();
-        qCDebug(MissionControllerLog) << "loading from vehicle: count"<< newMissionItems.count();
+        const QList<MissionItem*>& managerMissionItems = _missionManager->missionItems();
+        const bool forceEmptyMission = removeAllRequested;
+        const int loadedMissionCount = forceEmptyMission ? 0 : managerMissionItems.count();
+        qCDebug(MissionControllerLog) << "loading from vehicle: count" << loadedMissionCount
+                                      << "forceEmptyMission" << forceEmptyMission;
 
-        _missionItemCount = newMissionItems.count();
+        _missionItemCount = loadedMissionCount;
         emit missionItemCountChanged(_missionItemCount);
 
         MissionSettingsItem* settingsItem = _addMissionSettings(newControllerMissionItems);
 
         int i=0;
-        if (_controllerVehicle->firmwarePlugin()->sendHomePositionToVehicle() && newMissionItems.count() != 0) {
+        if (!forceEmptyMission &&
+                _controllerVehicle->firmwarePlugin()->sendHomePositionToVehicle() &&
+                managerMissionItems.count() != 0) {
             // First item is fake home position
-            MissionItem* fakeHomeItem = newMissionItems[0];
+            MissionItem* fakeHomeItem = managerMissionItems[0];
             if (fakeHomeItem->coordinate().latitude() != 0 || fakeHomeItem->coordinate().longitude() != 0) {
                 settingsItem->setInitialHomePosition(fakeHomeItem->coordinate());
             }
             i = 1;
         }
 
-        for (; i < newMissionItems.count(); i++) {
-            const MissionItem* missionItem = newMissionItems[i];
+        for (; !forceEmptyMission && i < managerMissionItems.count(); i++) {
+            const MissionItem* missionItem = managerMissionItems[i];
             SimpleMissionItem* simpleItem = new SimpleMissionItem(_masterController, _flyView, *missionItem);
             if (TakeoffMissionItem::isTakeoffCommand(static_cast<MAV_CMD>(simpleItem->command()))) {
                 // This needs to be a TakeoffMissionItem
@@ -2343,17 +2348,31 @@ bool MissionController::showPlanFromManagerVehicle (void)
 
 void MissionController::_managerSendComplete(bool error)
 {
-    // Fly view always reloads on send complete
-    if (!error && _flyView) {
-        showPlanFromManagerVehicle();
+    // Fly view should always resync on send complete. Even on error, request a
+    // vehicle reload to avoid stale mission overlays if the write actually succeeded.
+    if (_flyView) {
+        if (!error) {
+            // Rebuild immediately from manager cache so empty mission uploads clear visuals
+            // without depending on deferred showPlanFromManagerVehicle gating.
+            _itemsRequested = true;
+            _newMissionItemsAvailableFromVehicle(false /* removeAllRequested */);
+        } else if (!_masterController->offline() && !syncInProgress()) {
+            _itemsRequested = true;
+            _missionManager->loadFromVehicle();
+        }
     }
 }
 
 void MissionController::_managerRemoveAllComplete(bool error)
 {
-    if (!error) {
-        // Remove all from vehicle so we always update
-        showPlanFromManagerVehicle();
+    // Remove-all should clear map overlays immediately from local cache, then if
+    // the transaction reported an error force a load to reconcile with the vehicle.
+    _itemsRequested = true;
+    _newMissionItemsAvailableFromVehicle(true /* removeAllRequested */);
+
+    if (error && !_masterController->offline() && !syncInProgress()) {
+        _itemsRequested = true;
+        _missionManager->loadFromVehicle();
     }
 }
 

@@ -24,6 +24,8 @@ Canvas {
     property real compassSize
     property real heading
     property bool simplified:    false
+    property color indicatorColor: "#EE3424"
+    property color indicatorSecondaryColor: "#C72B27"
 
     property var _qgcPal: QGroundControl.globalPalette
 
@@ -32,10 +34,13 @@ Canvas {
         onGlobalThemeChanged:   control.requestPaint()
     }
 
+    onIndicatorColorChanged: control.requestPaint()
+    onIndicatorSecondaryColorChanged: control.requestPaint()
+
     onPaint: {
         var ctx = getContext("2d")
-        ctx.strokeStyle = simplified ? "#EE3424" : _qgcPal.text
-        ctx.fillStyle = "#EE3424"
+        ctx.strokeStyle = simplified ? indicatorColor : _qgcPal.text
+        ctx.fillStyle = indicatorColor
         ctx.lineWidth = 1
         ctx.beginPath()
         ctx.moveTo(width / 2, 0)
@@ -44,7 +49,7 @@ Canvas {
         ctx.lineTo(width / 2, 0)
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = "#C72B27"
+        ctx.fillStyle = indicatorSecondaryColor
         ctx.beginPath()
         ctx.moveTo(width / 2, 0)
         ctx.lineTo(0, height)

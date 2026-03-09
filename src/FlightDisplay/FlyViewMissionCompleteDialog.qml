@@ -31,16 +31,19 @@ Item {
     property bool _vehicleWasArmed:                 false
     property bool _vehicleInMissionFlightMode:      _activeVehicle ? (_activeVehicle.flightMode === _activeVehicle.missionFlightMode) : false
     property bool _vehicleWasInMissionFlightMode:   false
+    property bool _missionCompleteDialogConsumed:   false
     property bool _showMissionCompleteDialog:       _vehicleWasArmed && _vehicleWasInMissionFlightMode &&
                                                     (missionController.containsItems || geoFenceController.containsItems || rallyPointController.containsItems ||
                                                      (_activeVehicle ? _activeVehicle.cameraTriggerPoints.count !== 0 : false))
 
     on_VehicleArmedChanged: {
-        if (_vehicleArmed) {
+        if (_vehicleArmed && _activeVehicle) {
             _vehicleWasArmed = true
             _vehicleWasInMissionFlightMode = _vehicleInMissionFlightMode
+            _missionCompleteDialogConsumed = false
         } else {
-            if (_showMissionCompleteDialog) {
+            if (_activeVehicle && _showMissionCompleteDialog && !_missionCompleteDialogConsumed) {
+                _missionCompleteDialogConsumed = true
                 missionCompleteDialogComponent.createObject(mainWindow).open()
             }
             _vehicleWasArmed = false

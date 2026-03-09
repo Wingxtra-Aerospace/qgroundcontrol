@@ -361,7 +361,7 @@ Item {
         return _homeCoordinateForTakeoffForVehicle(_activeVehicle, missionController);
     }
 
-    function _coordinateForMissionItem(item, homeCoordinate) {
+    function _coordinateForMissionItem(item, homeCoordinate, allowTakeoffHomeFallback) {
         if (!item) {
             return null;
         }
@@ -372,11 +372,44 @@ Item {
 
         // Some takeoff commands in QGC are altitude-only (no explicit lat/lon).
         // Render them in 3D at home coordinate so takeoff climb is visible.
-        if (item.isTakeoffItem === true && homeCoordinate && homeCoordinate.isValid) {
+        if (allowTakeoffHomeFallback &&
+                item.isTakeoffItem === true &&
+                homeCoordinate &&
+                homeCoordinate.isValid) {
             return homeCoordinate;
         }
 
         return null;
+    }
+
+    function _missionHasExplicitCoordinateWaypoint(visualItems) {
+        if (!visualItems || !isFinite(Number(visualItems.count))) {
+            return false;
+        }
+
+        for (let i = 0; i < visualItems.count; i++) {
+            const item = visualItems.get(i);
+            if (!item || item.homePosition === true) {
+                continue;
+            }
+
+            if (item.specifiesCoordinate === true &&
+                    item.coordinate &&
+                    item.coordinate.isValid === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function _hasUploadedMissionItems(vehicleMissionController) {
+        if (!vehicleMissionController) {
+            return false;
+        }
+
+        const missionItemCount = Number(vehicleMissionController.missionItemCount);
+        return isFinite(missionItemCount) && missionItemCount > 0;
     }
 
     function _directionArrowsFromModel(directionArrowsModel, altitudeBiasMeters) {
@@ -463,9 +496,12 @@ Item {
         return false;
     }
 
-    function _missionDataFromVisualItems(visualItems, homeAmsl, homeCoordinate, altitudeBiasMeters, vehicleId, directionArrowsModel) {
+    function _missionDataFromVisualItems(visualItems, homeAmsl, homeCoordinate, altitudeBiasMeters, vehicleId, directionArrowsModel, hasUploadedMissionItems) {
         const waypoints = [];
         const directionArrows = _directionArrowsFromModel(directionArrowsModel, altitudeBiasMeters);
+        const allowTakeoffHomeFallback =
+            _missionHasExplicitCoordinateWaypoint(visualItems) ||
+            (hasUploadedMissionItems === true);
         const rtlCommand = 20; // MAV_CMD_NAV_RETURN_TO_LAUNCH
         let foundRTL = false;
         let linkEndToHome = false;
@@ -506,7 +542,7 @@ Item {
                 continue;
             }
 
-            const coordinate = _coordinateForMissionItem(item, homeCoordinate);
+            const coordinate = _coordinateForMissionItem(item, homeCoordinate, allowTakeoffHomeFallback);
             if (!coordinate || coordinate.isValid !== true) {
                 continue;
             }
@@ -602,6 +638,7 @@ Item {
     function _missionDataFromController(vehicle, vehicleMissionController, indexHint) {
         const altitudeBiasMeters = _finiteOrNaN(_vehicleAltitudeBiasFact ? _vehicleAltitudeBiasFact.rawValue : 0);
         const controllerToUse = vehicleMissionController ? vehicleMissionController : null;
+        const hasUploadedMissionItems = _hasUploadedMissionItems(controllerToUse);
         const vehicleId = _vehicleKeyForVehicle(vehicle, indexHint);
         if (!controllerToUse) {
             return {
@@ -623,13 +660,13 @@ Item {
             homeCoordinate,
             altitudeBiasMeters,
             vehicleId,
-            controllerToUse ? controllerToUse.directionArrows : null
+            controllerToUse ? controllerToUse.directionArrows : null,
+            hasUploadedMissionItems
         );
     }
 
     function _allMissionData() {
         const missions = [];
-        let hasAnyWaypoints = false;
 
         const repeaterCount = vehicleMissionControllersRepeater ? Number(vehicleMissionControllersRepeater.count) : 0;
         if (isFinite(repeaterCount) && repeaterCount > 0) {
@@ -647,44 +684,12 @@ Item {
                 }
 
                 const vehicleMissionController = controllerEntry._missionController;
-                let missionData = _missionDataFromController(vehicle, vehicleMissionController, i);
-
-                // Fallback for active vehicle: if per-vehicle controller has not populated yet,
-                // use the already-available fly-view mission controller so 3D never stays blank.
-                if ((!missionData.waypoints || missionData.waypoints.length === 0) &&
-                        _activeVehicle &&
-                        vehicle === _activeVehicle &&
-                        missionController) {
-                    missionData = _missionDataFromVisualItems(
-                        _missionVisualItems,
-                        _homeAltitudeAmsl(),
-                        _homeCoordinateForTakeoff(),
-                        _finiteOrNaN(_vehicleAltitudeBiasFact ? _vehicleAltitudeBiasFact.rawValue : 0),
-                        _vehicleKeyForVehicle(vehicle, i),
-                        missionController ? missionController.directionArrows : null
-                    );
-                }
-
-                if (missionData && missionData.waypoints && missionData.waypoints.length > 0) {
-                    hasAnyWaypoints = true;
-                }
+                const missionData = _missionDataFromController(vehicle, vehicleMissionController, i);
                 missions.push(missionData);
             }
-            if (hasAnyWaypoints) {
-                return missions;
-            }
+            return missions;
         }
 
-        // Offline/no-vehicle fallback: continue rendering the root mission controller mission.
-        const fallbackMission = _missionDataFromVisualItems(
-            _missionVisualItems,
-            _homeAltitudeAmsl(),
-            _homeCoordinateForTakeoff(),
-            _finiteOrNaN(_vehicleAltitudeBiasFact ? _vehicleAltitudeBiasFact.rawValue : 0),
-            "offline",
-            missionController ? missionController.directionArrows : null
-        );
-        missions.push(fallbackMission);
         return missions;
     }
 
@@ -935,6 +940,7 @@ Item {
 
         webView.forceActiveFocus();
         _pushVehicleStateToPage();
+        _pushMissionDataToPage();
         _scheduleMissionSync();
         webView.runJavaScript(
             "if (typeof window.__qgcOnViewerActivated === 'function') {" +

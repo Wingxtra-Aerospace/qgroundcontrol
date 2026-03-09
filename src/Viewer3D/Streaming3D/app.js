@@ -3398,9 +3398,9 @@
 
     window.__qgcSetMissionsData = function (missionsData) {
         window.__qgcMissionsData = Array.isArray(missionsData) ? missionsData : [];
-        if ((!window.__qgcMissionsData || window.__qgcMissionsData.length === 0) && window.__qgcMissionData) {
-            window.__qgcMissionsData = [window.__qgcMissionData];
-        }
+        window.__qgcMissionData = (window.__qgcMissionsData.length > 0)
+            ? window.__qgcMissionsData[0]
+            : null;
         return applyMissionsData(window.__qgcMissionsData);
     };
 
@@ -3524,9 +3524,12 @@
                     centerOnVehicle(pendingCenterOnVehicleRequest);
                 }
                 if ((window.__qgcMissionsData && window.__qgcMissionsData.length > 0) ||
-                        (window.__qgcMissionData) ||
+                        Array.isArray(window.__qgcMissionsData) ||
                         (pendingMissionData && pendingMissionData.length > 0)) {
-                    applyMissionsData(window.__qgcMissionsData || pendingMissionData || (window.__qgcMissionData ? [window.__qgcMissionData] : []));
+                    const missionsPayload = Array.isArray(window.__qgcMissionsData)
+                        ? window.__qgcMissionsData
+                        : (pendingMissionData || (window.__qgcMissionData ? [window.__qgcMissionData] : []));
+                    applyMissionsData(missionsPayload);
                 }
                 logGlRendererInfo();
                 window.__qgcOnViewerActivated();
@@ -3538,9 +3541,12 @@
                     mapDeclutterLayerVisibilityCache.clear();
                     applyDeclutterState();
                     if ((window.__qgcMissionsData && window.__qgcMissionsData.length > 0) ||
-                            (window.__qgcMissionData) ||
+                            Array.isArray(window.__qgcMissionsData) ||
                             (pendingMissionData && pendingMissionData.length > 0)) {
-                        applyMissionsData(window.__qgcMissionsData || pendingMissionData || (window.__qgcMissionData ? [window.__qgcMissionData] : []));
+                        const missionsPayload = Array.isArray(window.__qgcMissionsData)
+                            ? window.__qgcMissionsData
+                            : (pendingMissionData || (window.__qgcMissionData ? [window.__qgcMissionData] : []));
+                        applyMissionsData(missionsPayload);
                     }
                 }
             });

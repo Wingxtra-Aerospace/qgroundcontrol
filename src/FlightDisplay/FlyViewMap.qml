@@ -146,6 +146,23 @@ FlightMap {
         animatedMapRecenter(_root.center, _activeVehicleCoordinate)
     }
 
+    function _centerMapOnVehicleSelection(vehicleCoordinate) {
+        if (!vehicleCoordinate || !vehicleCoordinate.isValid) {
+            return
+        }
+
+        var preserveFreePanManualControl = (_manualPanMode === "free" && !_keepMapCenteredOnVehicle)
+        if (!preserveFreePanManualControl) {
+            _disableVehicleTracking = false
+        }
+
+        animatedMapRecenter(_root.center, vehicleCoordinate)
+
+        if (preserveFreePanManualControl) {
+            _disableVehicleTracking = true
+        }
+    }
+
     function showOverview() {
         // Compatibility shim: "Overview" is the explicit free-pan/manual mode.
         setFreePanMode()
@@ -193,6 +210,18 @@ FlightMap {
     onMapPanStop: {
         if (_manualPanMode !== "free") {
             panRecenterTimer.restart()
+        }
+    }
+
+    Connections {
+        target:                 QGroundControl.multiVehicleManager
+        ignoreUnknownSignals:   true
+
+        function onActiveVehicleChanged(activeVehicle) {
+            if (!activeVehicle || !activeVehicle.coordinate || !activeVehicle.coordinate.isValid) {
+                return
+            }
+            _centerMapOnVehicleSelection(activeVehicle.coordinate)
         }
     }
 

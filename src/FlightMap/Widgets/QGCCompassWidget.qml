@@ -40,6 +40,35 @@ Rectangle {
     property var  _flyViewSettings:             QGroundControl.settingsManager.flyViewSettings
     property bool _showAdditionalIndicators:    _flyViewSettings.showAdditionalIndicatorsCompass.value && !usedByMultipleVehicleList
     property bool _lockNoseUpCompass:           _flyViewSettings.lockNoseUpCompass.value && !usedByMultipleVehicleList
+    property var  _vehicleIconColorPalette: [
+        "#F96442", // warm red-orange
+        "#3CC1FE", // sky blue
+        "#64DF72", // green
+        "#FCC747", // amber
+        "#C282FA", // violet
+        "#26E0C9", // aqua
+        "#FB86C3", // pink
+        "#9CDF40"  // lime
+    ]
+    property color _headingIndicatorColor: usedByMultipleVehicleList
+        ? _vehicleIconColorForId(vehicle ? vehicle.id : "active")
+        : "#EE3424"
+    property color _headingIndicatorSecondaryColor: Qt.darker(_headingIndicatorColor, 1.2)
+
+    function _vehicleIconColorForId(vehicleId) {
+        const key = String(vehicleId === undefined || vehicleId === null ? "active" : vehicleId)
+        let hash = 0
+        for (let i = 0; i < key.length; i++) {
+            hash = ((hash * 31) + key.charCodeAt(i)) >>> 0
+        }
+
+        const palette = _vehicleIconColorPalette
+        if (!palette || palette.length === 0) {
+            return "white"
+        }
+
+        return palette[hash % palette.length]
+    }
 
     function showCOG(){
         if (_groundSpeed < 0.5) {
@@ -86,6 +115,8 @@ Rectangle {
             compassSize:    size
             heading:        _heading
             simplified:     usedByMultipleVehicleList
+            indicatorColor: _headingIndicatorColor
+            indicatorSecondaryColor: _headingIndicatorSecondaryColor
         }
 
         Image {
