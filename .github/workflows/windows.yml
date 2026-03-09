@@ -27,7 +27,7 @@ jobs:
 
     strategy:
       matrix:
-        BuildType: [Release]
+        BuildType: [Debug, Release]
         Arch: [x64] # Arm64
 
     defaults:
@@ -116,6 +116,7 @@ jobs:
               -DCMAKE_BUILD_TYPE=${{ matrix.BuildType }}
               -DQT_HOST_PATH="${{ env.QT_ROOT_DIR }}/../msvc2022_64"
               -DQT_DEBUG_FIND_PACKAGE=ON
+              -DQGC_BUILD_TESTING=${{ matrix.BuildType == 'Debug' && 'ON' || 'OFF' }}
               -DQGC_STABLE_BUILD=${{ github.ref_type == 'tag' || contains(github.ref, 'Stable') && 'ON' || 'OFF' }}
 
       - name: Build
@@ -127,7 +128,16 @@ jobs:
         working-directory: ${{ runner.temp }}\shadow_build_dir\Release
         run: QGroundControl.exe --simple-boot-test
 
+      - name: Run targeted unit tests
+        if: matrix.BuildType == 'Debug'
+        working-directory: ${{ runner.temp }}\shadow_build_dir\Debug
+        run: |
+          QGroundControl.exe --unittest:StatusTextHandlerTest
+          QGroundControl.exe --unittest:MissionManagerTest
+          QGroundControl.exe --unittest:VehicleLinkManagerTest
+
       - name: Install
+        if: matrix.BuildType == 'Release'
         working-directory: ${{ runner.temp }}\shadow_build_dir
         run: cmake --install . --config ${{ matrix.BuildType }}
 

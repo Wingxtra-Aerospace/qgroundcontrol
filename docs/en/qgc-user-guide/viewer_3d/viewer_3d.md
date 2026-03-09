@@ -3,7 +3,7 @@
 The 3D View is used to visualize and monitor the vehicle, the environment, and the planned mission in 3D. Most of the capabilities available in the [Fly View](../fly_view/fly_view.md)  is also available in the 3D View. 
 
 You can use it to:
-- To import and display the 3D map for any region of interest downloaded from the OpenStreetMap website (.osm file).
+- Stream online 3D terrain + imagery for the current fly area.
 - Display the vehicle along with its mission in 3D.
 - And most of the capabilities of the [Fly View](../fly_view/fly_view.md), including:
     - Run an automated [pre-flight checklist](#preflight_checklist).
@@ -37,14 +37,12 @@ Once the 3D View is opened, you can navigate through the 3D environment by using
     - **To rotate**: Use two fingers, then tap and move your fingers while keeping them together.
     - **To zoom**: Use a pinch with two fingers and move them together or apart to zoom in or out.
 
-To visualize the 3D map of a particular area in the 3D viewer, you have to download the .osm file of that area from the [OpenStreetMap](https://www.openstreetmap.org/#map=16/47.3964/8.5498) website and then import it through the **3D View** settings. More details on the **3D View** settings can be found in the next section.
+The streamed 3D viewer requires internet access and a valid Mapbox access token configured in **Application Settings** -> **Fly View** -> **3D View**.
 # Settings
 You can change the settings of the 3D View from **Application Settings** ->**Fly View** tab under the **3D View** settings group.
 The following properties can be modified in the 3D View settings group:
 
 - **Enabled**: To enable or disable the 3D View.
-- **3D Map File**: The path to the .osm file of a region of interest to be visualized in the QGC. The .osm file can be uploaded by clicking on the **Select File** button. To clear the 3D View from the previously loaded .osm file, you can click on the **Clear** button.
-- **Average Building Level Height**: This parameter determines the height of each storey of the buildings, as in .osm file sometimes the height of the buildings is specified in terms of the level/storey. 
-- **Vehicle Altitude Bias**: This refers to the bias in the altitude of vehicles and their missions with respect to the ground level. It is helpful in cases where the estimated altitude of the vehicle by its flight control is biased, as the relative altitude is currently used in the 3D View.
-
+- **Mapbox Access Token**: Token used by the streamed 3D provider to load terrain and imagery.
+- **Vehicle Altitude Bias**: Altitude correction bias (in meters) applied to vehicle and mission 3D overlays when the flight controller altitude estimate is offset from rendered terrain.
 

@@ -75,7 +75,7 @@ ApplicationWindow {
     property bool               _accessibilityModeEnabled:  _uiPreferences.accessibilityModeEnabled
     property bool               _reducedMotionEnabled:      _uiPreferences.reducedMotionEnabled
     property var                _activeVehicle:             QGroundControl.multiVehicleManager.activeVehicle
-    property int                _notificationUnreadCount:   0
+    property int                _timelineUnreadCount:       0
     property int                _notificationMaxItems:      80
     property int                _notificationSequence:      0
     property string             _notificationSortMode:      "all"
@@ -156,7 +156,7 @@ ApplicationWindow {
         }
     }
 
-    function _markAllNotificationsRead() {
+    function _markAllTimelineNotificationsRead() {
         let anyChanged = false
         for (let i = 0; i < _notificationModel.count; i++) {
             if (!_notificationModel.get(i).read) {
@@ -164,7 +164,7 @@ ApplicationWindow {
                 anyChanged = true
             }
         }
-        _notificationUnreadCount = 0
+        _timelineUnreadCount = 0
 
         if (anyChanged && _notificationSortMode === "recommended") {
             _resortNotifications()
@@ -192,7 +192,7 @@ ApplicationWindow {
         }
 
         if (!entryRead) {
-            _notificationUnreadCount += 1
+            _timelineUnreadCount += 1
         }
     }
 
@@ -279,7 +279,7 @@ ApplicationWindow {
 
         function onActiveVehicleChanged(activeVehicle) {
             _notificationModel.clear()
-            _notificationUnreadCount = 0
+            _timelineUnreadCount = 0
             if (activeVehicle) {
                 addNotification(qsTr("Vehicle Connected"), qsTr("Vehicle %1 is now active").arg(activeVehicle.id), "info")
             } else {
@@ -546,7 +546,12 @@ ApplicationWindow {
         modal:          false
         interactive:    true
 
-        onOpened: _markAllNotificationsRead()
+        onOpened: {
+            if (_activeVehicle) {
+                _activeVehicle.resetAllMessages()
+            }
+            _markAllTimelineNotificationsRead()
+        }
 
         background: Rectangle {
             color:          qgcPal.window

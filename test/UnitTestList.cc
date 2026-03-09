@@ -83,6 +83,7 @@
 #include "TerrainTileTest.h"
 
 // UI
+#include "FlyViewMissionCompleteDialogTest.h"
 
 // Utilities
 // Audio
@@ -186,6 +187,7 @@ int runTests(bool stress, QStringView unitTestOptions)
     UT_REGISTER_TEST(TerrainTileTest)
 
     // UI
+    UT_REGISTER_TEST(FlyViewMissionCompleteDialogTest)
 
     // Utilities
     // Audio

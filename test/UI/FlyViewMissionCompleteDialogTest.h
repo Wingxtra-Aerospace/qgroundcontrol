@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2026 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -11,15 +11,18 @@
 
 #include "UnitTest.h"
 
-class StatusTextHandlerTest : public UnitTest
+class FlyViewMissionCompleteDialogTest : public UnitTest
 {
     Q_OBJECT
 
 public:
-    StatusTextHandlerTest() = default;
+    FlyViewMissionCompleteDialogTest() = default;
 
 private slots:
-    void _testGetMessageText();
-    void _testHandleTextMessage();
-    void _testUnreadSeverityTransitions();
+    void init() override;
+    void cleanup() override;
+
+    void _testOneShotPerCycleAndVehicle();
+    void _testRemovePlanUsesInjectedMissionController();
 };
+

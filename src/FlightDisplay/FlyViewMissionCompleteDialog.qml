@@ -21,30 +21,78 @@ import QGroundControl.ScreenTools
 Item {
     visible: false
 
+    signal missionCompleteDialogRequested()
+    signal removePlanFromVehicleRequested()
+
     property var missionController
     property var geoFenceController
     property var rallyPointController
 
     // The following code is used to track vehicle states for showing the mission complete dialog
     property var  _activeVehicle:                   QGroundControl.multiVehicleManager.activeVehicle
+    property int  _activeVehicleId:                 _activeVehicle && (_activeVehicle.id !== undefined) ? _activeVehicle.id : -1
+    property int  _missionCycleVehicleId:           -1
     property bool _vehicleArmed:                    _activeVehicle ? _activeVehicle.armed : true // true here prevents pop up from showing during shutdown
     property bool _vehicleWasArmed:                 false
     property bool _vehicleInMissionFlightMode:      _activeVehicle ? (_activeVehicle.flightMode === _activeVehicle.missionFlightMode) : false
     property bool _vehicleWasInMissionFlightMode:   false
     property bool _missionCompleteDialogConsumed:   false
+    property bool _missionSourcesContainItems:      (missionController ? missionController.containsItems : false) ||
+                                                    (geoFenceController ? geoFenceController.containsItems : false) ||
+                                                    (rallyPointController ? rallyPointController.containsItems : false)
     property bool _showMissionCompleteDialog:       _vehicleWasArmed && _vehicleWasInMissionFlightMode &&
-                                                    (missionController.containsItems || geoFenceController.containsItems || rallyPointController.containsItems ||
+                                                    (_missionSourcesContainItems ||
                                                      (_activeVehicle ? _activeVehicle.cameraTriggerPoints.count !== 0 : false))
+
+    function _resetMissionCycleState() {
+        _vehicleWasArmed = false
+        _vehicleWasInMissionFlightMode = false
+        _missionCompleteDialogConsumed = false
+    }
+
+    function _openMissionCompleteDialog() {
+        missionCompleteDialogRequested()
+
+        if ((typeof mainWindow === "undefined") || !mainWindow) {
+            return
+        }
+
+        const dialog = missionCompleteDialogComponent.createObject(mainWindow)
+        if (dialog && (typeof dialog.open === "function")) {
+            dialog.open()
+        }
+    }
+
+    function _removePlanFromVehicle() {
+        if (!missionController || (typeof missionController.removeAllFromVehicle !== "function")) {
+            return
+        }
+
+        removePlanFromVehicleRequested()
+        missionController.removeAllFromVehicle()
+    }
+
+    on_ActiveVehicleChanged: {
+        if (_activeVehicleId === _missionCycleVehicleId) {
+            return
+        }
+
+        // Keep mission-complete state scoped to the active vehicle so changing
+        // selection cannot replay a previously-consumed completion popup.
+        _missionCycleVehicleId = _activeVehicleId
+        _resetMissionCycleState()
+    }
 
     on_VehicleArmedChanged: {
         if (_vehicleArmed && _activeVehicle) {
+            _missionCycleVehicleId = _activeVehicleId
             _vehicleWasArmed = true
             _vehicleWasInMissionFlightMode = _vehicleInMissionFlightMode
             _missionCompleteDialogConsumed = false
         } else {
             if (_activeVehicle && _showMissionCompleteDialog && !_missionCompleteDialogConsumed) {
                 _missionCompleteDialogConsumed = true
-                missionCompleteDialogComponent.createObject(mainWindow).open()
+                _openMissionCompleteDialog()
             }
             _vehicleWasArmed = false
             _vehicleWasInMissionFlightMode = false
@@ -88,7 +136,7 @@ Item {
                     text:               qsTr("Remove plan from vehicle")
                     visible:            !_activeVehicle.communicationLost// && !_activeVehicle.apmFirmware  // ArduPilot has a bug somewhere with mission clear
                     onClicked: {
-                        _planController.removeAllFromVehicle()
+                        _removePlanFromVehicle()
                         missionCompleteDialog.close()
                     }
                 }

@@ -107,6 +107,7 @@ add_qgc_test(TerrainQueryTest)
 add_qgc_test(TerrainTileTest)
 
 add_subdirectory(UI)
+add_qgc_test(FlyViewMissionCompleteDialogTest)
 
 add_subdirectory(Utilities)
 # Audio

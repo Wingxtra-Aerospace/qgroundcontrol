@@ -12,6 +12,7 @@
 #include "MAVLinkLib.h"
 
 #include <QtTest/QTest>
+#include <QtTest/QSignalSpy>
 
 void StatusTextHandlerTest::_testGetMessageText()
 {
@@ -47,4 +48,50 @@ void StatusTextHandlerTest::_testHandleTextMessage()
     QCOMPARE(statusTextHandler->getNormalCount(), 0);
     QCOMPARE(statusTextHandler->getWarningCount(), 0);
     QCOMPARE(statusTextHandler->messageCount(), 0);
+}
+
+void StatusTextHandlerTest::_testUnreadSeverityTransitions()
+{
+    StatusTextHandler statusTextHandler(this);
+
+    QSignalSpy messageCountSpy(&statusTextHandler, &StatusTextHandler::messageCountChanged);
+    QSignalSpy messageTypeSpy(&statusTextHandler, &StatusTextHandler::messageTypeChanged);
+
+    QVERIFY(statusTextHandler.messageTypeNone());
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(0));
+
+    statusTextHandler.handleHTMLEscapedTextMessage(MAV_COMP_ID_USER1, MAV_SEVERITY_INFO, "Info", "info detail");
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(1));
+    QCOMPARE(statusTextHandler.getNormalCount(), uint32_t(1));
+    QVERIFY(statusTextHandler.messageTypeNormal());
+
+    statusTextHandler.handleHTMLEscapedTextMessage(MAV_COMP_ID_USER1, MAV_SEVERITY_WARNING, "Warn", "warn detail");
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(2));
+    QCOMPARE(statusTextHandler.getNormalCount(), uint32_t(1));
+    QCOMPARE(statusTextHandler.getWarningCount(), uint32_t(1));
+    QVERIFY(statusTextHandler.messageTypeWarning());
+
+    statusTextHandler.handleHTMLEscapedTextMessage(MAV_COMP_ID_USER1, MAV_SEVERITY_ERROR, "Err", "error detail");
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(3));
+    QCOMPARE(statusTextHandler.getErrorCount(), uint32_t(1));
+    QVERIFY(statusTextHandler.messageTypeError());
+
+    statusTextHandler.resetAllMessages();
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(0));
+    QCOMPARE(statusTextHandler.getNormalCount(), uint32_t(0));
+    QCOMPARE(statusTextHandler.getWarningCount(), uint32_t(0));
+    QCOMPARE(statusTextHandler.getErrorCount(), uint32_t(0));
+    QVERIFY(statusTextHandler.messageTypeNone());
+
+    statusTextHandler.handleHTMLEscapedTextMessage(MAV_COMP_ID_USER1, MAV_SEVERITY_WARNING, "Warn2", "warn2 detail");
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(1));
+    QVERIFY(statusTextHandler.messageTypeWarning());
+
+    statusTextHandler.clearMessages();
+    QCOMPARE(statusTextHandler.messageCount(), uint32_t(0));
+    QCOMPARE(statusTextHandler.formattedMessages().isEmpty(), true);
+    QVERIFY(statusTextHandler.messageTypeNone());
+
+    QVERIFY(messageCountSpy.count() >= 5);
+    QVERIFY(messageTypeSpy.count() >= 5);
 }

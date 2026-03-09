@@ -21,4 +21,5 @@ cmake --build build/Desktop_Qt_6_8_3_MSVC2022_64bit-Debug --config Debug
 ## Notes
 
 - You must have Qt WebEngine installed in your Qt kit when `QGC_STREAMING_3D=ON`.
-- The flag currently controls build-time dependency wiring only.
+- When enabled, QGC uses the streamed 3D runtime (WebEngine + Mapbox-backed terrain/imagery path).
+- Streamed 3D also requires a valid Mapbox access token configured in **Application Settings -> Fly View -> 3D View**.

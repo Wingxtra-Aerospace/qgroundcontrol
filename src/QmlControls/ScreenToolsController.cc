@@ -25,7 +25,7 @@
 
 static QString firstAvailableFont(const QStringList& preferredFamilies)
 {
-    const QStringList availableFamilies = QFontDatabase().families();
+    const QStringList availableFamilies = QFontDatabase::families();
     for (const QString& family : preferredFamilies) {
         if (availableFamilies.contains(family, Qt::CaseInsensitive)) {
             return family;

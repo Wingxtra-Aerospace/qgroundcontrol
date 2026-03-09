@@ -29,7 +29,7 @@ Rectangle {
     property bool   _communicationLost: _activeVehicle ? _activeVehicle.vehicleLinkManager.communicationLost : false
     property color  _mainStatusBGColor: qgcPal.brandingBlue
     property string _dateTimeText:      ""
-    property int    _unreadNotifications: mainWindow._notificationUnreadCount
+    property int    _unreadNotifications: _activeVehicle ? _activeVehicle.messageCount : 0
 
     function _updateDateTimeText() {
         _dateTimeText = Qt.formatDateTime(new Date(), "ddd, dd MMM yyyy  HH:mm:ss")
@@ -137,7 +137,7 @@ Rectangle {
                                 ? qgcPal.colorRed
                                 : (_activeVehicle && _activeVehicle.messageTypeWarning
                                     ? qgcPal.colorOrange
-                                    : (notificationButton._active ? qgcPal.buttonHighlightText : qgcPal.buttonText))
+                                    : qgcPal.buttonText)
                 text:       ""
                 onClicked:  mainWindow.toggleNotificationCenter()
             }
