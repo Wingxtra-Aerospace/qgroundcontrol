@@ -221,10 +221,17 @@ ApplicationWindow {
         _uiPreferences.reducedMotionEnabled = enabled
     }
 
+    function _dismissFlyViewControlsPopup() {
+        if (flyView && (typeof flyView.dismissViewControlsPopup === "function")) {
+            flyView.dismissViewControlsPopup()
+        }
+    }
+
     function toggleNotificationCenter() {
         if (notificationDrawer.visible) {
             notificationDrawer.close()
         } else {
+            _dismissFlyViewControlsPopup()
             if (toolSelectDrawer.visible) {
                 toolSelectDrawer.close()
             }
@@ -314,6 +321,7 @@ ApplicationWindow {
 
     function showPlanView() {
         if (_showFlyView) {
+            _dismissFlyViewControlsPopup()
             _showFlyView = false
         }
     }
@@ -325,6 +333,7 @@ ApplicationWindow {
     }
 
     function showTool(toolTitle, toolSource, toolIcon) {
+        _dismissFlyViewControlsPopup()
         toolDrawer.backIcon     = flyView.visible ? "/qmlimages/PaperPlane.svg" : "/qmlimages/Plan.svg"
         toolDrawer.toolTitle    = toolTitle
         toolDrawer.toolSource   = toolSource
@@ -591,6 +600,7 @@ ApplicationWindow {
         if (toolSelectDrawer.visible) {
             toolSelectDrawer.close()
         } else {
+            _dismissFlyViewControlsPopup()
             if (notificationDrawer.visible) {
                 notificationDrawer.close()
             }
@@ -923,6 +933,7 @@ ApplicationWindow {
     //-- Indicator Drawer
 
     function showIndicatorDrawer(drawerComponent, indicatorItem) {
+        _dismissFlyViewControlsPopup()
         indicatorDrawer.sourceComponent = drawerComponent
         indicatorDrawer.indicatorItem = indicatorItem
         indicatorDrawer.open()

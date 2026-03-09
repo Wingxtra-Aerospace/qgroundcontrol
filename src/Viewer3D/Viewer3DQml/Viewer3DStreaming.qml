@@ -23,7 +23,8 @@ Item {
     property var _activeVehicleAltitudeAmslFact: _activeVehicle && _activeVehicle.altitudeAMSL ? _activeVehicle.altitudeAMSL : null
     property var _activeVehicleAltitudeRelativeFact: _activeVehicle && _activeVehicle.altitudeRelative ? _activeVehicle.altitudeRelative : null
     property bool _missionSyncPending: false
-    property bool followVehicleEnabled: true
+    property bool followVehicleEnabled: false
+    property bool autoPanEnabled: false
     property bool declutterEnabled: false
     property var _vehicleIconColorPalette: [
         "#F96442", // warm red-orange
@@ -793,6 +794,19 @@ Item {
         webView.runJavaScript(script);
     }
 
+    function _pushAutoPanStateToPage() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const autoPanState = autoPanEnabled === true;
+        const script =
+            "if (typeof window.__qgcSetAutoPanEnabled === 'function') {" +
+            "window.__qgcSetAutoPanEnabled(" + (autoPanState ? "true" : "false") + ");" +
+            "}";
+        webView.runJavaScript(script);
+    }
+
     function _pushDeclutterStateToPage() {
         if (!webView || webView.loading) {
             return;
@@ -808,6 +822,7 @@ Item {
 
     function _pushViewControlStateToPage() {
         _pushFollowStateToPage();
+        _pushAutoPanStateToPage();
         _pushDeclutterStateToPage();
     }
 
@@ -933,6 +948,11 @@ Item {
         return true;
     }
 
+    function setAutoPanEnabled(enabled) {
+        autoPanEnabled = (enabled === true);
+        return true;
+    }
+
     function setDeclutterEnabled(enabled) {
         declutterEnabled = (enabled === true);
         return true;
@@ -1048,6 +1068,10 @@ Item {
         if (followVehicleEnabled) {
             _centerMapOnActiveVehicle();
         }
+    }
+
+    onAutoPanEnabledChanged: {
+        _pushAutoPanStateToPage();
     }
 
     onDeclutterEnabledChanged: {

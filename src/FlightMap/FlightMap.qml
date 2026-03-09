@@ -195,6 +195,15 @@ Map {
                 mapClicked(Qt.point(touchPoints[0].x, touchPoints[0].y))
             }
         }
+
+        onCanceled: {
+            // Ensure pan state is always released even when pointer handling is cancelled
+            // by focus/layer changes (otherwise auto-pan can remain disabled).
+            if (dragActive) {
+                dragActive = false
+                mapPanStop()
+            }
+        }
     }
 
     /// Ground Station location

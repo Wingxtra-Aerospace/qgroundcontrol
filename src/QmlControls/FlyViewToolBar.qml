@@ -183,7 +183,7 @@ Rectangle {
         anchors.top:            parent.top
         anchors.bottom:         parent.bottom
         anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.66
-        anchors.rightMargin:    dateTimeContainer.width + quickActionRow.width + (ScreenTools.defaultFontPixelWidth * 0.75)
+        anchors.rightMargin:    dateTimeContainer.width + quickActionRow.width + (ScreenTools.defaultFontPixelWidth * 1.9)
         visible:                _activeVehicle && !_communicationLost && _activeBrandImage.length > 0 && x > (toolsFlickable.x + toolsFlickable.contentWidth + ScreenTools.defaultFontPixelWidth)
         fillMode:               Image.PreserveAspectFit
         source:                 _activeBrandImage

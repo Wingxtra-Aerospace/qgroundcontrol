@@ -50,21 +50,87 @@ FlightMap {
     property bool   _keepMapCenteredOnVehicle:  _flyViewSettings.keepMapCenteredOnVehicle.rawValue
 
     property bool   _disableVehicleTracking:    false
+    property string _manualPanMode:             "auto"
     property bool   _keepVehicleCentered:       pipMode ? true : false
     property bool   _saveZoomLevelSetting:      true
     property bool   _declutterMap:              _mapUxSettings.declutterMapEnabled
     property bool   followVehicleEnabled:       _keepMapCenteredOnVehicle
+    property string viewPanMode:                _keepMapCenteredOnVehicle ? "follow" : _manualPanMode
     property bool   declutterEnabled:           _declutterMap
     property bool   canCenterVehicle:           _activeVehicleCoordinate.isValid
+    readonly property real _autoPanCenterDeadbandRatioX: 0.14
+    readonly property real _autoPanCenterDeadbandRatioY: 0.12
+    readonly property real _autoPanCenterDeadbandMinPixelsX: ScreenTools.defaultFontPixelWidth * 8
+    readonly property real _autoPanCenterDeadbandMinPixelsY: ScreenTools.defaultFontPixelHeight * 5
+
+    Component.onCompleted: {
+        // Start Fly View in manual "Overview" mode by default so the pilot
+        // can freely move the map until an explicit follow/free-pan mode is selected.
+        if (!pipMode) {
+            showOverview()
+        }
+    }
 
     on_DeclutterMapChanged: if (_mapUxSettings.declutterMapEnabled !== _declutterMap) { _mapUxSettings.declutterMapEnabled = _declutterMap }
+    on_KeepMapCenteredOnVehicleChanged: {
+        if (_keepMapCenteredOnVehicle) {
+            _manualPanMode = "auto"
+            _disableVehicleTracking = false
+        }
+    }
+
+    function setFollowingMode() {
+        _manualPanMode = "auto"
+        if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = true
+        }
+        _disableVehicleTracking = false
+        panRecenterTimer.stop()
+        if (_activeVehicleCoordinate.isValid) {
+            animatedMapRecenter(_root.center, _activeVehicleCoordinate)
+        }
+    }
+
+    function setAutoPanMode() {
+        _manualPanMode = "auto"
+        if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = false
+        }
+        _disableVehicleTracking = false
+        panRecenterTimer.stop()
+        updateMapToVehiclePosition()
+    }
+
+    function setFreePanMode() {
+        _manualPanMode = "free"
+        if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = false
+        }
+        // Manual free-pan mode keeps camera/zoom as-is and disables automatic recentering.
+        _disableVehicleTracking = true
+        panRecenterTimer.stop()
+    }
+
+    function setViewPanMode(modeKey) {
+        switch (modeKey) {
+        case "follow":
+            setFollowingMode()
+            break
+        case "auto":
+            setAutoPanMode()
+            break
+        case "free":
+        default:
+            setFreePanMode()
+            break
+        }
+    }
 
     function toggleFollowVehicle() {
-        const followVehicle = !_keepMapCenteredOnVehicle
-        _flyViewSettings.keepMapCenteredOnVehicle.rawValue = followVehicle
-        if (followVehicle && _activeVehicleCoordinate.isValid) {
-            _disableVehicleTracking = false
-            animatedMapRecenter(_root.center, _activeVehicleCoordinate)
+        if (_keepMapCenteredOnVehicle) {
+            setAutoPanMode()
+        } else {
+            setFollowingMode()
         }
     }
 
@@ -78,6 +144,11 @@ FlightMap {
         }
         _disableVehicleTracking = false
         animatedMapRecenter(_root.center, _activeVehicleCoordinate)
+    }
+
+    function showOverview() {
+        // Compatibility shim: "Overview" is the explicit free-pan/manual mode.
+        setFreePanMode()
     }
 
     Settings {
@@ -119,7 +190,11 @@ FlightMap {
 
     // We track whether the user has panned or not to correctly handle automatic map positioning
     onMapPanStart:  _disableVehicleTracking = true
-    onMapPanStop:   panRecenterTimer.restart()
+    onMapPanStop: {
+        if (_manualPanMode !== "free") {
+            panRecenterTimer.restart()
+        }
+    }
 
     function pointInRect(point, rect) {
         return point.x > rect.x &&
@@ -188,6 +263,16 @@ FlightMap {
             return true
         }
 
+        if (_manualPanMode === "auto" && !_keepMapCenteredOnVehicle) {
+            var centerInsetPoint = Qt.point(centerRect.x + centerRect.width / 2, centerRect.y + centerRect.height / 2)
+            var maxOffsetX = Math.max(_autoPanCenterDeadbandMinPixelsX, centerRect.width * _autoPanCenterDeadbandRatioX)
+            var maxOffsetY = Math.max(_autoPanCenterDeadbandMinPixelsY, centerRect.height * _autoPanCenterDeadbandRatioY)
+            if (Math.abs(vehiclePoint.x - centerInsetPoint.x) > maxOffsetX ||
+                    Math.abs(vehiclePoint.y - centerInsetPoint.y) > maxOffsetY) {
+                return true
+            }
+        }
+
         // if we are inside the center inset rectangle
         // then additionally check if we are underneath one of the corner inset rectangles
         var cornerRects = _insetCornerRects()
@@ -242,16 +327,20 @@ FlightMap {
 
     Timer {
         id:         panRecenterTimer
-        interval:   10000
+        interval:   800
         running:    false
         onTriggered: {
+            if (_manualPanMode === "free") {
+                stop()
+                return
+            }
             _disableVehicleTracking = false
             updateMapToVehiclePosition()
         }
     }
 
     Timer {
-        interval:       500
+        interval:       250
         running:        true
         repeat:         true
         onTriggered:    updateMapToVehiclePosition()
@@ -810,28 +899,6 @@ FlightMap {
             position = _root.mapToItem(globals.parent, position)
             var dropPanel = mapClickDropPanelComponent.createObject(mainWindow, { mapClickCoord: clickCoord, clickRect: Qt.rect(position.x, position.y, 0, 0) })
             dropPanel.open()
-        }
-    }
-
-    Rectangle {
-        anchors.horizontalCenter:   parent.horizontalCenter
-        anchors.top:                parent.top
-        anchors.topMargin:          _toolsMargin
-        width:                      declutterLabel.implicitWidth + (ScreenTools.defaultFontPixelWidth * 1.2)
-        height:                     declutterLabel.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.65)
-        radius:                     ScreenTools.buttonBorderRadius
-        color:                      qgcPal.button
-        border.width:               1
-        border.color:               qgcPal.groupBorder
-        z:                          QGroundControl.zOrderWidgets + 1
-        visible:                    _declutterMap && !pipMode
-
-        QGCLabel {
-            id:                 declutterLabel
-            anchors.centerIn:   parent
-            text:               qsTr("Declutter mode active")
-            font.pointSize:     ScreenTools.smallFontPointSize
-            font.weight:        Font.Medium
         }
     }
 

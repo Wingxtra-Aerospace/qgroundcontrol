@@ -26,6 +26,8 @@ Item {
     readonly property real maximumZoomLevel: 20.0
     property real zoomLevel: _clampZoom(Number(QGroundControl.flightMapZoom))
     property bool followVehicleEnabled: _flyViewSettings ? _flyViewSettings.keepMapCenteredOnVehicle.rawValue : false
+    property string _manualPanMode: "free"
+    property string viewPanMode: followVehicleEnabled ? "follow" : _manualPanMode
     property bool declutterEnabled: false
     property var _activeVehicle: QGroundControl.multiVehicleManager.activeVehicle
     property bool canCenterVehicle: !!(_activeVehicle && _activeVehicle.coordinate && _activeVehicle.coordinate.isValid)
@@ -106,6 +108,21 @@ Item {
         return false
     }
 
+    function _pushAutoPanStateToStreaming3D() {
+        if (_streaming3DEnabled !== true) {
+            return false
+        }
+
+        const autoPanEnabled = !followVehicleEnabled && (_manualPanMode === "auto")
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.setAutoPanEnabled === "function") {
+            return streaming3DLoader.item.setAutoPanEnabled(autoPanEnabled)
+        }
+
+        return false
+    }
+
     function _pushDeclutterStateToStreaming3D() {
         if (_streaming3DEnabled !== true) {
             return false
@@ -120,16 +137,60 @@ Item {
         return false
     }
 
-    function toggleFollowVehicle() {
-        const followVehicle = !followVehicleEnabled
+    function setFollowingMode() {
+        _manualPanMode = "auto"
         if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
-            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = followVehicle
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = true
         } else {
-            followVehicleEnabled = followVehicle
+            followVehicleEnabled = true
         }
         _pushFollowStateToStreaming3D()
-        if (followVehicle) {
-            centerOnActiveVehicle()
+        _pushAutoPanStateToStreaming3D()
+        centerOnActiveVehicle()
+    }
+
+    function setAutoPanMode() {
+        _manualPanMode = "auto"
+        if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = false
+        } else {
+            followVehicleEnabled = false
+        }
+        _pushFollowStateToStreaming3D()
+        _pushAutoPanStateToStreaming3D()
+    }
+
+    function setFreePanMode() {
+        _manualPanMode = "free"
+        if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
+            _flyViewSettings.keepMapCenteredOnVehicle.rawValue = false
+        } else {
+            followVehicleEnabled = false
+        }
+        _pushFollowStateToStreaming3D()
+        _pushAutoPanStateToStreaming3D()
+    }
+
+    function setViewPanMode(modeKey) {
+        switch (modeKey) {
+        case "follow":
+            setFollowingMode()
+            break
+        case "auto":
+            setAutoPanMode()
+            break
+        case "free":
+        default:
+            setFreePanMode()
+            break
+        }
+    }
+
+    function toggleFollowVehicle() {
+        if (followVehicleEnabled) {
+            setAutoPanMode()
+        } else {
+            setFollowingMode()
         }
     }
 
@@ -148,6 +209,11 @@ Item {
                 typeof streaming3DLoader.item.centerOnActiveVehicle === "function") {
             streaming3DLoader.item.centerOnActiveVehicle()
         }
+    }
+
+    function showOverview() {
+        // Compatibility shim: "Overview" is explicit free-pan/manual mode.
+        setFreePanMode()
     }
 
     function getScaleLineMeters(scaleLinePixelLength, yPixel, onDone) {
@@ -351,7 +417,11 @@ Item {
     }
 
     onFollowVehicleEnabledChanged: {
+        if (followVehicleEnabled) {
+            _manualPanMode = "auto"
+        }
         _pushFollowStateToStreaming3D()
+        _pushAutoPanStateToStreaming3D()
     }
 
     onDeclutterEnabledChanged: {
@@ -359,6 +429,8 @@ Item {
     }
 
     Component.onCompleted: {
+        // Match 2D behavior: default to manual overview mode on startup.
+        showOverview()
         _prewarmStreaming3D()
     }
 
@@ -378,6 +450,7 @@ Item {
                 console.log("[Streaming3D] Loader.Ready")
                 _streamingLoadError = ""
                 _pushFollowStateToStreaming3D()
+                _pushAutoPanStateToStreaming3D()
                 _pushDeclutterStateToStreaming3D()
                 if (isOpen && _streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
                     _streamingNeedsMapSyncOnOpen = false

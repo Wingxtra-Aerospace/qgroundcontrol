@@ -84,10 +84,10 @@ public:
     virtual bool adjustSettingMetaData(const QString &settingsGroup, FactMetaData &metaData);
 
     /// Return the resource file which contains the brand image for for Indoor theme.
-    virtual QString brandImageIndoor() const { return QString(); }
+    virtual QString brandImageIndoor() const { return QStringLiteral("/qmlimages/Wingxtra/BrandImage"); }
 
     /// Return the resource file which contains the brand image for for Outdoor theme.
-    virtual QString brandImageOutdoor() const { return QString(); }
+    virtual QString brandImageOutdoor() const { return QStringLiteral("/qmlimages/Wingxtra/BrandImage"); }
 
     /// @return The message to show to the user when they a re prompted to confirm turning on advanced ui.
     virtual QString showAdvancedUIMessage() const;

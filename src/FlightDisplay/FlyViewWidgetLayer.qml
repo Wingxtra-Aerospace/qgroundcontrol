@@ -85,8 +85,54 @@ Item {
         }
     }
 
+    function dismissViewControlsPopup() {
+        if (hudCustomizationPopup.visible) {
+            hudCustomizationPopup.close()
+        }
+    }
+
     function openPreFlightChecklist() {
         _openPreFlightChecklist()
+    }
+
+    function _setPanModeOnControl(control, modeKey) {
+        if (control && (typeof control.setViewPanMode === "function")) {
+            control.setViewPanMode(modeKey)
+        }
+    }
+
+    function _applyPanModeToAllViews(modeKey) {
+        _setPanModeOnControl(mapControl, modeKey)
+        _setPanModeOnControl(mapControl3D, modeKey)
+    }
+
+    function _setDeclutterOnControl(control, enabled) {
+        if (!control) {
+            return
+        }
+
+        const currentEnabled = (control.declutterEnabled === true)
+        if (currentEnabled === enabled) {
+            return
+        }
+
+        if (typeof control.toggleDeclutter === "function") {
+            control.toggleDeclutter()
+        } else if (typeof control.setDeclutterEnabled === "function") {
+            control.setDeclutterEnabled(enabled)
+        }
+    }
+
+    function _toggleDeclutterAcrossViews() {
+        const targetEnabled = !(_activeViewControl && _activeViewControl.declutterEnabled === true)
+        _setDeclutterOnControl(mapControl, targetEnabled)
+        _setDeclutterOnControl(mapControl3D, targetEnabled)
+    }
+
+    onVisibleChanged: {
+        if (!visible) {
+            dismissViewControlsPopup()
+        }
     }
 
     QGCToolInsets {
@@ -242,13 +288,59 @@ Item {
                 font.weight:    Font.DemiBold
             }
 
-            QGCButton {
-                Layout.fillWidth:   true
-                text:               (_activeViewControl && _activeViewControl.followVehicleEnabled) ? qsTr("Following") : qsTr("Free Pan")
-                enabled:            _activeViewControl && (typeof _activeViewControl.toggleFollowVehicle === "function")
-                onClicked: {
-                    if (_activeViewControl && (typeof _activeViewControl.toggleFollowVehicle === "function")) {
-                        _activeViewControl.toggleFollowVehicle()
+            Rectangle {
+                id:                     panModeSelector
+                Layout.fillWidth:       true
+                Layout.preferredHeight: ScreenTools.implicitButtonHeight
+                radius:                 ScreenTools.buttonBorderRadius
+                color:                  qgcPal.button
+                border.width:           1
+                border.color:           qgcPal.groupBorder
+                clip:                   true
+                enabled:                _activeViewControl && (typeof _activeViewControl.setViewPanMode === "function")
+                opacity:                enabled ? 1 : 0.6
+
+                property var modeOptions: [
+                    { modeKey: "free",   text: qsTr("Free Pan"),  iconSource: "/qmlimages/MapType.svg" },
+                    { modeKey: "auto",   text: qsTr("Auto Pan"),  iconSource: "/qmlimages/TrackingIcon.svg" },
+                    { modeKey: "follow", text: qsTr("Following"), iconSource: "/qmlimages/MapCenter.svg" }
+                ]
+
+                Repeater {
+                    id: panModeRepeater
+                    model: panModeSelector.modeOptions
+
+                    delegate: Rectangle {
+                        width:      panModeSelector.width / panModeRepeater.count
+                        height:     panModeSelector.height
+                        x:          index * width
+                        color:      (_activeViewControl && _activeViewControl.viewPanMode === modelData.modeKey) ? qgcPal.buttonHighlight : qgcPal.button
+                        border.width: index < (panModeRepeater.count - 1) ? 1 : 0
+                        border.color: qgcPal.groupBorder
+
+                        QGCColoredImage {
+                            anchors.centerIn:   parent
+                            width:              ScreenTools.defaultFontPixelHeight * 1.05
+                            height:             width
+                            sourceSize.height:  height
+                            source:             modelData.iconSource
+                            fillMode:           Image.PreserveAspectFit
+                            color:              (_activeViewControl && _activeViewControl.viewPanMode === modelData.modeKey) ? qgcPal.buttonHighlightText : qgcPal.buttonText
+                        }
+
+                        MouseArea {
+                            id:             modeButtonArea
+                            anchors.fill:   parent
+                            enabled:        panModeSelector.enabled
+                            hoverEnabled:   !ScreenTools.isMobile
+                            onClicked: {
+                                _applyPanModeToAllViews(modelData.modeKey)
+                                dismissViewControlsPopup()
+                            }
+                        }
+
+                        ToolTip.visible: modeButtonArea.containsMouse && !ScreenTools.isMobile
+                        ToolTip.text: modelData.text
                     }
                 }
             }
@@ -258,9 +350,8 @@ Item {
                 text:               (_activeViewControl && _activeViewControl.declutterEnabled) ? qsTr("Declutter On") : qsTr("Declutter Off")
                 enabled:            _activeViewControl && (typeof _activeViewControl.toggleDeclutter === "function")
                 onClicked: {
-                    if (_activeViewControl && (typeof _activeViewControl.toggleDeclutter === "function")) {
-                        _activeViewControl.toggleDeclutter()
-                    }
+                    _toggleDeclutterAcrossViews()
+                    dismissViewControlsPopup()
                 }
             }
 
@@ -269,6 +360,7 @@ Item {
                 text:               _showCameraControls ? qsTr("Camera Controls On") : qsTr("Camera Controls Off")
                 onClicked: {
                     _showCameraControls = !_showCameraControls
+                    dismissViewControlsPopup()
                 }
             }
 
@@ -282,6 +374,7 @@ Item {
                     if (_activeViewControl && (typeof _activeViewControl.centerOnActiveVehicle === "function")) {
                         _activeViewControl.centerOnActiveVehicle()
                     }
+                    dismissViewControlsPopup()
                 }
             }
         }

@@ -74,6 +74,12 @@ Item {
         toolbar.dropMainStatusIndicatorTool();
     }
 
+    function dismissViewControlsPopup() {
+        if (widgetLayer && (typeof widgetLayer.dismissViewControlsPopup === "function")) {
+            widgetLayer.dismissViewControlsPopup()
+        }
+    }
+
     QGCToolInsets {
         id:                     _toolInsets
         leftEdgeBottomInset:    _pipView.leftEdgeBottomInset

@@ -51,9 +51,12 @@
     let pendingVehicleState = null;
     let pendingMissionData = null;
     let pendingCenterOnVehicleRequest = null;
-    let followVehicleEnabled = true;
+    let followVehicleEnabled = false;
+    let autoPanEnabled = false;
     let followVehicleId = "";
     let followTrackingSuppressUntilMs = 0;
+    let autoPanTrackingSuppressUntilMs = 0;
+    let interactionTrackingSuppressUntilMs = 0;
     let declutterEnabled = false;
     let defaultMapViewState = {
         latitude: 0.0,
@@ -83,6 +86,15 @@
     // Delay before follow mode re-centers after the last manual camera interaction.
     // Keep this short so manual override feels responsive without a long dead period.
     const FOLLOW_USER_PAN_HOLDOFF_MS = 2000;
+    // Delay before auto-pan re-engages after manual interaction.
+    const AUTO_PAN_USER_HOLDOFF_MS = 1200;
+    // Vehicle should remain inside this inset in auto-pan mode.
+    const AUTO_PAN_VIEWPORT_MARGIN_PX = 48;
+    const AUTO_PAN_CENTER_DEADBAND_X_RATIO = 0.14;
+    const AUTO_PAN_CENTER_DEADBAND_Y_RATIO = 0.12;
+    // Ignore move/moveend events caused by programmatic recenter operations.
+    const PROGRAMMATIC_MOVE_EVENT_SUPPRESS_MS = 180;
+    const PROGRAMMATIC_EASE_MOVE_EVENT_SUPPRESS_MS = 620;
     const PAN_MAX_SPEED = 760;
     const PAN_DECELERATION = 9800;
     const ROTATE_MAX_SPEED = 210;
@@ -544,6 +556,11 @@
             bearing: bearing
         };
 
+        suppressInteractionTrackingTemporarily(
+            animate === true
+                ? PROGRAMMATIC_EASE_MOVE_EVENT_SUPPRESS_MS
+                : PROGRAMMATIC_MOVE_EVENT_SUPPRESS_MS
+        );
         isApplyingExternalMapView = true;
         try {
             if (animate === true && typeof map.easeTo === "function") {
@@ -623,6 +640,67 @@
             }
         }
         return centered;
+    }
+
+    function isVehicleStateWithinViewport(vehicleState, viewportMarginPx) {
+        if (!map || !mapLoaded || !vehicleState) {
+            return true;
+        }
+
+        const latitude = Number(vehicleState.latitude);
+        const longitude = Number(vehicleState.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return true;
+        }
+
+        let projectedPoint = null;
+        try {
+            projectedPoint = map.project([longitude, latitude]);
+        } catch (projectionError) {
+            return true;
+        }
+
+        if (!projectedPoint ||
+                !Number.isFinite(Number(projectedPoint.x)) ||
+                !Number.isFinite(Number(projectedPoint.y))) {
+            return true;
+        }
+
+        const canvas = map.getCanvas();
+        const canvasWidth = canvas
+            ? Number.isFinite(Number(canvas.clientWidth)) && Number(canvas.clientWidth) > 0
+                ? Number(canvas.clientWidth)
+                : Number(canvas.width)
+            : Number.NaN;
+        const canvasHeight = canvas
+            ? Number.isFinite(Number(canvas.clientHeight)) && Number(canvas.clientHeight) > 0
+                ? Number(canvas.clientHeight)
+                : Number(canvas.height)
+            : Number.NaN;
+
+        if (!Number.isFinite(canvasWidth) || !Number.isFinite(canvasHeight) ||
+                canvasWidth <= 0 || canvasHeight <= 0) {
+            return true;
+        }
+
+        const maxMargin = Math.max(0, (Math.min(canvasWidth, canvasHeight) * 0.33));
+        const margin = clampValue(Number(viewportMarginPx), 0, maxMargin);
+        const x = Number(projectedPoint.x);
+        const y = Number(projectedPoint.y);
+        const withinViewportBounds = x >= margin &&
+            x <= (canvasWidth - margin) &&
+            y >= margin &&
+            y <= (canvasHeight - margin);
+        if (!withinViewportBounds) {
+            return false;
+        }
+
+        const centerX = canvasWidth * 0.5;
+        const centerY = canvasHeight * 0.5;
+        const maxCenterOffsetX = Math.max(40, canvasWidth * AUTO_PAN_CENTER_DEADBAND_X_RATIO);
+        const maxCenterOffsetY = Math.max(28, canvasHeight * AUTO_PAN_CENTER_DEADBAND_Y_RATIO);
+        return Math.abs(x - centerX) <= maxCenterOffsetX &&
+            Math.abs(y - centerY) <= maxCenterOffsetY;
     }
 
     function resolveVehicleAltitudeAboveGround(normalizedVehicleState) {
@@ -1055,6 +1133,8 @@
     }
 
     function applyDeclutterState() {
+        // Declutter keeps core mission geometry (routes/points) and hides
+        // auxiliary mission overlays (labels/direction markers).
         const showMissionOverlays = !declutterEnabled;
         setMarkerCollectionVisibility(missionDebugMarkers, showMissionOverlays);
         setMarkerCollectionVisibility(missionDirectionMarkers, showMissionOverlays);
@@ -1692,6 +1772,18 @@
                 id: fallbackState && fallbackState.id ? String(fallbackState.id) : "",
                 animate: false
             });
+        } else if (autoPanEnabled === true && normalizedStates.length > 0) {
+            if (Date.now() < autoPanTrackingSuppressUntilMs) {
+                map.triggerRepaint();
+                return true;
+            }
+            const autoPanState = findVehicleStateById(normalizedStates, followVehicleId) || normalizedStates[0];
+            if (autoPanState && !isVehicleStateWithinViewport(autoPanState, AUTO_PAN_VIEWPORT_MARGIN_PX)) {
+                centerOnVehicle({
+                    id: autoPanState.id ? String(autoPanState.id) : "",
+                    animate: false
+                });
+            }
         }
         map.triggerRepaint();
         return true;
@@ -1700,6 +1792,7 @@
     function setFollowVehicleEnabled(enabled) {
         followVehicleEnabled = (enabled === true);
         followTrackingSuppressUntilMs = 0;
+        autoPanTrackingSuppressUntilMs = 0;
 
         if (!followVehicleEnabled) {
             return true;
@@ -1719,6 +1812,38 @@
         const fallbackState = followState || normalizedStates[0];
         return centerOnVehicle({
             id: fallbackState && fallbackState.id ? String(fallbackState.id) : "",
+            animate: false
+        });
+    }
+
+    function setAutoPanEnabled(enabled) {
+        autoPanEnabled = (enabled === true);
+        autoPanTrackingSuppressUntilMs = 0;
+
+        if (!autoPanEnabled || followVehicleEnabled === true) {
+            return true;
+        }
+
+        const normalizedStates = normalizeVehiclesState(
+            window.__qgcVehiclesState ||
+            pendingVehicleState ||
+            (window.__qgcVehicleState ? [window.__qgcVehicleState] : [])
+        );
+        if (normalizedStates.length === 0) {
+            return true;
+        }
+
+        const autoPanState = findVehicleStateById(normalizedStates, followVehicleId) || normalizedStates[0];
+        if (!autoPanState) {
+            return true;
+        }
+
+        if (isVehicleStateWithinViewport(autoPanState, AUTO_PAN_VIEWPORT_MARGIN_PX)) {
+            return true;
+        }
+
+        return centerOnVehicle({
+            id: autoPanState.id ? String(autoPanState.id) : "",
             animate: false
         });
     }
@@ -2774,10 +2899,6 @@
                     return;
                 }
 
-                if (declutterEnabled === true) {
-                    return;
-                }
-
                 if (missionLayerNeedsUpload) {
                     uploadMissionLayerBuffers();
                 }
@@ -2857,7 +2978,9 @@
                     gl.drawArrays(gl.TRIANGLES, 0, missionLayerState.directionVertexCount);
                 }
 
-                if (Array.isArray(missionLayerState.trailBatches) && missionLayerState.trailBatches.length > 0) {
+                if (!declutterEnabled &&
+                        Array.isArray(missionLayerState.trailBatches) &&
+                        missionLayerState.trailBatches.length > 0) {
                     for (let trailIndex = 0; trailIndex < missionLayerState.trailBatches.length; trailIndex++) {
                         const trailBatch = missionLayerState.trailBatches[trailIndex];
                         const trailBuffer = missionLayerState.trailBuffers[trailIndex];
@@ -3073,6 +3196,7 @@
         const pitch = Number.isFinite(map.getPitch()) ? map.getPitch() : DEFAULT_PITCH_DEGREES;
         const bearing = Number.isFinite(map.getBearing()) ? map.getBearing() : DEFAULT_BEARING_DEGREES;
 
+        suppressInteractionTrackingTemporarily(PROGRAMMATIC_MOVE_EVENT_SUPPRESS_MS);
         isApplyingExternalMapView = true;
         try {
             map.jumpTo({
@@ -3107,12 +3231,41 @@
         }
     }
 
+    function suppressAutoPanTrackingTemporarily(holdoffMs) {
+        if (autoPanEnabled !== true || followVehicleEnabled === true) {
+            return;
+        }
+
+        const durationMs = Number(holdoffMs);
+        const effectiveHoldoffMs =
+            Number.isFinite(durationMs) && durationMs > 0
+                ? durationMs
+                : AUTO_PAN_USER_HOLDOFF_MS;
+        const untilMs = Date.now() + effectiveHoldoffMs;
+        if (!Number.isFinite(autoPanTrackingSuppressUntilMs) || untilMs > autoPanTrackingSuppressUntilMs) {
+            autoPanTrackingSuppressUntilMs = untilMs;
+        }
+    }
+
+    function suppressInteractionTrackingTemporarily(durationMs) {
+        const requestedMs = Number(durationMs);
+        if (!Number.isFinite(requestedMs) || requestedMs <= 0) {
+            return;
+        }
+
+        const untilMs = Date.now() + requestedMs;
+        if (!Number.isFinite(interactionTrackingSuppressUntilMs) || untilMs > interactionTrackingSuppressUntilMs) {
+            interactionTrackingSuppressUntilMs = untilMs;
+        }
+    }
+
     function markUserInteraction(potentialCenterChange) {
         hasUserInteractedSinceExternalSync = true;
-        // In follow mode any manual interaction should win immediately.
+        // Manual interaction should temporarily override both follow and auto-pan.
         // Mapbox can emit rotate/pitch gestures without a reliable center delta,
         // so suppress recentering on all gesture starts and move events.
         suppressFollowTrackingTemporarily(FOLLOW_USER_PAN_HOLDOFF_MS);
+        suppressAutoPanTrackingTemporarily(AUTO_PAN_USER_HOLDOFF_MS);
     }
 
     function setupInteractionTracking() {
@@ -3120,8 +3273,11 @@
             return;
         }
 
-        const onManualInteraction = function (potentialCenterChange) {
+        const onManualInteraction = function (potentialCenterChange, guaranteedUserInput) {
             if (isApplyingExternalMapView) {
+                return;
+            }
+            if (guaranteedUserInput !== true && Date.now() < interactionTrackingSuppressUntilMs) {
                 return;
             }
             markUserInteraction(potentialCenterChange);
@@ -3138,20 +3294,20 @@
         ];
         for (const eventName of immediateOverrideEvents) {
             map.on(eventName, function () {
-                onManualInteraction(true);
+                onManualInteraction(true, true);
             });
         }
 
         map.on("movestart", function () {
-            onManualInteraction(false);
+            onManualInteraction(false, false);
         });
 
         map.on("move", function () {
-            onManualInteraction(true);
+            onManualInteraction(true, false);
         });
 
         map.on("moveend", function () {
-            onManualInteraction(true);
+            onManualInteraction(true, false);
         });
     }
 
@@ -3216,6 +3372,10 @@
 
     window.__qgcSetFollowVehicleEnabled = function (enabled) {
         return setFollowVehicleEnabled(enabled);
+    };
+
+    window.__qgcSetAutoPanEnabled = function (enabled) {
+        return setAutoPanEnabled(enabled);
     };
 
     window.__qgcSetDeclutterEnabled = function (enabled) {
