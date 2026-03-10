@@ -74,15 +74,17 @@
     let missionDebugMarkers = [];
     let missionDirectionMarkers = [];
     let vehicleTrailHistories = new Map();
+    let vehicleStableRenderStates = new Map();
     let mapDeclutterLayerVisibilityCache = new Map();
+    let lastTrailGeometryRefreshMs = 0;
 
     const MIN_MAP_ZOOM = 2.0;
     const MAX_MAP_ZOOM = 20.0;
     const DEFAULT_PITCH_DEGREES = 65.0;
     const DEFAULT_BEARING_DEGREES = 0.0;
     const DEFAULT_STYLE_URL = "mapbox://styles/mapbox/standard-satellite";
-    const WHEEL_ZOOM_RATE = 1 / 1500;
-    const TRACKPAD_ZOOM_RATE = 1 / 260;
+    const WHEEL_ZOOM_RATE = 1 / 1200;
+    const TRACKPAD_ZOOM_RATE = 1 / 230;
     // Delay before follow mode re-centers after the last manual camera interaction.
     // Keep this short so manual override feels responsive without a long dead period.
     const FOLLOW_USER_PAN_HOLDOFF_MS = 2000;
@@ -102,9 +104,14 @@
     // Keep terrain scale physically correct so mission altitude geometry remains true-to-meters.
     const TERRAIN_EXAGGERATION = 1.0;
     const ENABLE_ATMOSPHERIC_FOG = false;
-    const BUILDING_LAYER_OPACITY = 0.6;
+    // Keep buildings translucent but easier to read against satellite imagery.
+    const BUILDING_LAYER_OPACITY = 0.72;
+    const BUILDING_LAYER_COLOR = "#8fa5bd";
     const BUILDING_VECTOR_SOURCE_ID = "qgc-buildings-source";
     const BUILDING_VECTOR_SOURCE_URL = "mapbox://mapbox.mapbox-streets-v8";
+    const BUILDING_BASE_OUTLINE_LAYER_ID = "qgc-3d-building-base-outline";
+    const BUILDING_BASE_OUTLINE_COLOR = "#FFFFFF";
+    const BUILDING_BASE_OUTLINE_OPACITY = 0.90;
     const BUILDING_GROWTH_START_ZOOM = 14.6;
     const BUILDING_GROWTH_END_ZOOM = 16.0;
     const BUILDING_GROWTH_CURVE = 1.6;
@@ -136,6 +143,9 @@
     const VEHICLE_TRAIL_MAX_POINTS = 300;
     const VEHICLE_TRAIL_MIN_HORIZONTAL_STEP_METERS = 0.7;
     const VEHICLE_TRAIL_MIN_VERTICAL_STEP_METERS = 0.45;
+    const VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MS = 160;
+    const DISARMED_POSITION_DEADBAND_METERS = 7.0;
+    const DISARMED_ALTITUDE_DEADBAND_METERS = 2.0;
     const VEHICLE_TRAIL_COLOR_PALETTE = [
         [0.976, 0.392, 0.259, 0.95], // warm red-orange
         [0.235, 0.757, 0.996, 0.95], // sky blue
@@ -155,6 +165,16 @@
         "#26E0C9", // aqua
         "#FB86C3", // pink
         "#9CDF40"  // lime
+    ];
+    const VEHICLE_ICON_EDGE_COLOR_PALETTE = [
+        "#A23D25", // warm red-orange edge
+        "#1E7AA8", // sky blue edge
+        "#2F8A49", // green edge
+        "#A6852A", // amber edge
+        "#7C48AE", // violet edge
+        "#198F80", // aqua edge
+        "#A44D7A", // pink edge
+        "#6B922A"  // lime edge
     ];
     const EARTH_CIRCUMFERENCE_METERS = 40075016.686;
     const GROUND_ATTACH_EPSILON_METERS = 0.12;
@@ -438,6 +458,58 @@
         return palette[vehicleColorHash(vehicleId) % palette.length];
     }
 
+    function vehicleIconEdgeColorForId(vehicleId) {
+        const palette = VEHICLE_ICON_EDGE_COLOR_PALETTE;
+        if (!Array.isArray(palette) || palette.length === 0) {
+            return "#223242";
+        }
+        return palette[vehicleColorHash(vehicleId) % palette.length];
+    }
+
+    function parseHexColor(hexColor) {
+        const normalized = String(hexColor || "").trim();
+        const shortMatch = /^#([0-9a-fA-F]{3})$/.exec(normalized);
+        if (shortMatch) {
+            return {
+                r: parseInt(shortMatch[1].charAt(0) + shortMatch[1].charAt(0), 16),
+                g: parseInt(shortMatch[1].charAt(1) + shortMatch[1].charAt(1), 16),
+                b: parseInt(shortMatch[1].charAt(2) + shortMatch[1].charAt(2), 16)
+            };
+        }
+
+        const fullMatch = /^#([0-9a-fA-F]{6})$/.exec(normalized);
+        if (!fullMatch) {
+            return null;
+        }
+        const value = fullMatch[1];
+        return {
+            r: parseInt(value.slice(0, 2), 16),
+            g: parseInt(value.slice(2, 4), 16),
+            b: parseInt(value.slice(4, 6), 16)
+        };
+    }
+
+    function rgbToHexColor(r, g, b) {
+        const rr = clampValue(Math.round(r), 0, 255).toString(16).padStart(2, "0");
+        const gg = clampValue(Math.round(g), 0, 255).toString(16).padStart(2, "0");
+        const bb = clampValue(Math.round(b), 0, 255).toString(16).padStart(2, "0");
+        return "#" + rr + gg + bb;
+    }
+
+    function deriveVehicleIconEdgeColor(iconColor, vehicleId) {
+        const parsed = parseHexColor(iconColor);
+        if (!parsed) {
+            return vehicleIconEdgeColorForId(vehicleId);
+        }
+
+        // Darken and slightly desaturate fill color to produce a clean edge ring.
+        return rgbToHexColor(
+            parsed.r * 0.62 + 6,
+            parsed.g * 0.62 + 6,
+            parsed.b * 0.62 + 6
+        );
+    }
+
     function normalizeVehicleIconColor(iconColor, vehicleId) {
         const normalizedColor = iconColor !== undefined && iconColor !== null
             ? String(iconColor).trim()
@@ -458,6 +530,7 @@
 
         const altitudeAmsl = Number(vehicleState.altitudeAmsl);
         const altitudeRelative = Number(vehicleState.altitudeRelative);
+        const groundSpeed = Number(vehicleState.groundSpeed);
         const homeAltitudeAmsl = Number(vehicleState.homeAltitudeAmsl);
         const vehicleId = vehicleState.id !== undefined && vehicleState.id !== null
             ? String(vehicleState.id)
@@ -470,8 +543,11 @@
             heading: normalizeHeadingDegrees(vehicleState.heading),
             iconSource: toWebResourceUrl(vehicleState.iconSource),
             iconColor: normalizeVehicleIconColor(vehicleState.iconColor, vehicleId),
+            armed: vehicleState.armed === true,
+            flying: vehicleState.flying === true,
             altitudeAmsl: Number.isFinite(altitudeAmsl) ? altitudeAmsl : Number.NaN,
             altitudeRelative: Number.isFinite(altitudeRelative) ? altitudeRelative : Number.NaN,
+            groundSpeed: Number.isFinite(groundSpeed) ? groundSpeed : Number.NaN,
             homeAltitudeAmsl: Number.isFinite(homeAltitudeAmsl) ? homeAltitudeAmsl : Number.NaN
         };
     }
@@ -489,6 +565,51 @@
             }
         }
         return normalizedStates;
+    }
+
+    function stabilizeVehicleRenderState(normalizedVehicleState) {
+        if (!normalizedVehicleState) {
+            return null;
+        }
+
+        const vehicleId = normalizedVehicleState.id || "active";
+        const previousState = vehicleStableRenderStates.get(vehicleId);
+        const groundSpeed = Number(normalizedVehicleState.groundSpeed);
+        const stationary = !Number.isFinite(groundSpeed) || groundSpeed <= 1.0;
+        if (normalizedVehicleState.armed !== true && stationary && previousState) {
+            const horizontalDriftMeters = greatCircleDistanceMeters(
+                previousState.latitude,
+                previousState.longitude,
+                normalizedVehicleState.latitude,
+                normalizedVehicleState.longitude
+            );
+            const previousRelativeAltitude = Number(previousState.altitudeRelative);
+            const currentRelativeAltitude = Number(normalizedVehicleState.altitudeRelative);
+            const verticalDriftMeters =
+                Number.isFinite(previousRelativeAltitude) && Number.isFinite(currentRelativeAltitude)
+                    ? Math.abs(currentRelativeAltitude - previousRelativeAltitude)
+                    : 0.0;
+
+            if (Number.isFinite(horizontalDriftMeters) &&
+                    horizontalDriftMeters <= DISARMED_POSITION_DEADBAND_METERS &&
+                    verticalDriftMeters <= DISARMED_ALTITUDE_DEADBAND_METERS) {
+                const stabilizedState = Object.assign({}, normalizedVehicleState, {
+                    latitude: previousState.latitude,
+                    longitude: previousState.longitude,
+                    altitudeAmsl: Number.isFinite(previousState.altitudeAmsl)
+                        ? previousState.altitudeAmsl
+                        : normalizedVehicleState.altitudeAmsl,
+                    altitudeRelative: Number.isFinite(previousState.altitudeRelative)
+                        ? previousState.altitudeRelative
+                        : normalizedVehicleState.altitudeRelative
+                });
+                vehicleStableRenderStates.set(vehicleId, stabilizedState);
+                return stabilizedState;
+            }
+        }
+
+        vehicleStableRenderStates.set(vehicleId, normalizedVehicleState);
+        return normalizedVehicleState;
     }
 
     function normalizeVehicleCenterRequest(centerRequest) {
@@ -1322,8 +1443,17 @@
             exaggeration: TERRAIN_EXAGGERATION
         });
 
+        if (map.getLayer("qgc-3d-building-edge-accent")) {
+            map.removeLayer("qgc-3d-building-edge-accent");
+        }
+        if (map.getLayer("qgc-3d-building-top-edge")) {
+            map.removeLayer("qgc-3d-building-top-edge");
+        }
         if (map.getLayer("qgc-3d-buildings")) {
             map.removeLayer("qgc-3d-buildings");
+        }
+        if (map.getLayer(BUILDING_BASE_OUTLINE_LAYER_ID)) {
+            map.removeLayer(BUILDING_BASE_OUTLINE_LAYER_ID);
         }
 
         if (!map.getSource(BUILDING_VECTOR_SOURCE_ID)) {
@@ -1339,26 +1469,60 @@
             : null;
         const buildingTargetHeight = ["to-number", ["get", "height"], 0];
         const buildingTargetBase = ["to-number", ["get", "min_height"], 0];
+        const buildingFilter = [
+            "any",
+            ["==", ["get", "extrude"], "true"],
+            ["==", ["get", "extrude"], true],
+            ["has", "height"],
+            ["has", "render_height"],
+            ["has", "levels"]
+        ];
 
-        try {
-            map.addLayer({
+        const insertionLayerId = firstLabelLayerId ? firstLabelLayerId.id : undefined;
+        const addLayerSafely = function (layerSpec, label) {
+            try {
+                map.addLayer(layerSpec, insertionLayerId);
+                if (!map.getLayer(layerSpec.id)) {
+                    console.warn("[Streaming3D]", label, "layer did not register:", layerSpec.id);
+                }
+            } catch (layerError) {
+                console.warn("[Streaming3D]", label, "layer add failed:", layerError);
+            }
+        };
+
+        addLayerSafely({
+                id: BUILDING_BASE_OUTLINE_LAYER_ID,
+                source: BUILDING_VECTOR_SOURCE_ID,
+                "source-layer": "building",
+                filter: buildingFilter,
+                type: "line",
+                minzoom: BUILDING_GROWTH_START_ZOOM - 1.0,
+                layout: {
+                    "line-cap": "round",
+                    "line-join": "round"
+                },
+                paint: {
+                    "line-color": BUILDING_BASE_OUTLINE_COLOR,
+                    "line-opacity": BUILDING_BASE_OUTLINE_OPACITY,
+                    "line-width": [
+                        "interpolate", ["linear"], ["zoom"],
+                        BUILDING_GROWTH_START_ZOOM - 1.0, 0.55,
+                        BUILDING_GROWTH_END_ZOOM, 1.38
+                    ]
+                }
+            }, "building base outline");
+
+        addLayerSafely({
                 id: "qgc-3d-buildings",
                 source: BUILDING_VECTOR_SOURCE_ID,
                 "source-layer": "building",
                 // Capture both old/new schema variants so buildings appear consistently.
-                filter: [
-                    "any",
-                    ["==", ["get", "extrude"], "true"],
-                    ["==", ["get", "extrude"], true],
-                    ["has", "height"],
-                    ["has", "render_height"],
-                    ["has", "levels"]
-                ],
+                filter: buildingFilter,
                 type: "fill-extrusion",
                 // Keep layer active slightly before growth start so we avoid a hard layer pop.
                 minzoom: BUILDING_GROWTH_START_ZOOM - 1.0,
                 paint: {
-                    "fill-extrusion-color": "#aaa",
+                    "fill-extrusion-color": BUILDING_LAYER_COLOR,
                     "fill-extrusion-height": [
                         "interpolate", ["exponential", BUILDING_GROWTH_CURVE], ["zoom"],
                         BUILDING_GROWTH_START_ZOOM, 0,
@@ -1371,12 +1535,9 @@
                     ],
                     "fill-extrusion-opacity": BUILDING_LAYER_OPACITY
                 }
-            }, firstLabelLayerId ? firstLabelLayerId.id : undefined);
+            }, "building body");
 
-            console.warn("[Streaming3D] Buildings layer added source:", BUILDING_VECTOR_SOURCE_ID, "zoom:", BUILDING_GROWTH_START_ZOOM, "->", BUILDING_GROWTH_END_ZOOM);
-        } catch (buildingLayerError) {
-            console.warn("building layer setup failed:", buildingLayerError);
-        }
+        console.warn("[Streaming3D] Buildings layer stack refreshed source:", BUILDING_VECTOR_SOURCE_ID, "zoom:", BUILDING_GROWTH_START_ZOOM, "->", BUILDING_GROWTH_END_ZOOM);
 
         if (ENABLE_ATMOSPHERIC_FOG && typeof map.setFog === "function") {
             try {
@@ -1553,6 +1714,7 @@
 
     function clearVehicleTrailHistory() {
         vehicleTrailHistories.clear();
+        lastTrailGeometryRefreshMs = 0;
         if (missionLayerState) {
             setMissionTrailGeometry([]);
         }
@@ -1754,8 +1916,16 @@
 
         if (activeIds.size === 0) {
             setMissionTrailGeometry([]);
+            lastTrailGeometryRefreshMs = nowMs;
         } else {
-            refreshVehicleTrailsInLayer();
+            const elapsedMs = nowMs - lastTrailGeometryRefreshMs;
+            const shouldRefreshTrails =
+                !Number.isFinite(lastTrailGeometryRefreshMs) ||
+                elapsedMs >= VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MS;
+            if (shouldRefreshTrails) {
+                refreshVehicleTrailsInLayer();
+                lastTrailGeometryRefreshMs = nowMs;
+            }
         }
 
         pendingVehicleState = null;
@@ -3496,7 +3666,7 @@
                 antialias: false,
                 attributionControl: false,
                 hash: false,
-                fadeDuration: 0,
+                fadeDuration: 120,
                 renderWorldCopies: false
             });
 

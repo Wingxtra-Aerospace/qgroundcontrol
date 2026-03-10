@@ -23,6 +23,8 @@ Item {
     property var _activeVehicleAltitudeAmslFact: _activeVehicle && _activeVehicle.altitudeAMSL ? _activeVehicle.altitudeAMSL : null
     property var _activeVehicleAltitudeRelativeFact: _activeVehicle && _activeVehicle.altitudeRelative ? _activeVehicle.altitudeRelative : null
     property bool _missionSyncPending: false
+    property string _lastVehicleStatesJson: ""
+    property bool _lastVehicleStateWasEmpty: false
     property bool followVehicleEnabled: false
     property bool autoPanEnabled: false
     property bool declutterEnabled: false
@@ -122,6 +124,19 @@ Item {
         return palette[hash % palette.length]
     }
 
+    function _isSameVehicleRef(lhsVehicle, rhsVehicle) {
+        if (!lhsVehicle || !rhsVehicle) {
+            return false;
+        }
+        if (lhsVehicle === rhsVehicle) {
+            return true;
+        }
+
+        const lhsId = _finiteOrNaN(lhsVehicle.id);
+        const rhsId = _finiteOrNaN(rhsVehicle.id);
+        return isFinite(lhsId) && isFinite(rhsId) && (lhsId === rhsId);
+    }
+
     function _homeAltitudeAmslForVehicle(vehicle, vehicleMissionController) {
         if (vehicle && vehicle.homePosition && vehicle.homePosition.isValid) {
             return _finiteOrNaN(vehicle.homePosition.altitude);
@@ -133,7 +148,11 @@ Item {
             return _finiteOrNaN(vehicleMissionController.plannedHomePosition.altitude);
         }
 
-        if (missionController && missionController.plannedHomePosition && missionController.plannedHomePosition.isValid) {
+        const missionControllerMatchesVehicle = _isSameVehicleRef(vehicle, _activeVehicle);
+        if (missionControllerMatchesVehicle &&
+                missionController &&
+                missionController.plannedHomePosition &&
+                missionController.plannedHomePosition.isValid) {
             return _finiteOrNaN(missionController.plannedHomePosition.altitude);
         }
 
@@ -151,7 +170,11 @@ Item {
             return vehicleMissionController.plannedHomePosition;
         }
 
-        if (missionController && missionController.plannedHomePosition && missionController.plannedHomePosition.isValid) {
+        const missionControllerMatchesVehicle = _isSameVehicleRef(vehicle, _activeVehicle);
+        if (missionControllerMatchesVehicle &&
+                missionController &&
+                missionController.plannedHomePosition &&
+                missionController.plannedHomePosition.isValid) {
             return missionController.plannedHomePosition;
         }
 
@@ -719,6 +742,11 @@ Item {
 
         const vehicleStates = _allVehicleStates();
         if (!vehicleStates || vehicleStates.length === 0) {
+            if (_lastVehicleStateWasEmpty) {
+                return;
+            }
+            _lastVehicleStateWasEmpty = true;
+            _lastVehicleStatesJson = "[]";
             webView.runJavaScript(
                 "window.__qgcVehiclesState = [];" +
                 "window.__qgcVehicleState = null;" +
@@ -732,8 +760,15 @@ Item {
             return;
         }
 
+        const vehiclesStateJson = JSON.stringify(vehicleStates);
+        if (vehiclesStateJson === _lastVehicleStatesJson) {
+            return;
+        }
+
+        _lastVehicleStatesJson = vehiclesStateJson;
+        _lastVehicleStateWasEmpty = false;
         const script =
-            "window.__qgcVehiclesState = " + JSON.stringify(vehicleStates) + ";" +
+            "window.__qgcVehiclesState = " + vehiclesStateJson + ";" +
             "window.__qgcVehicleState = window.__qgcVehiclesState[0] || null;" +
             "if (typeof window.__qgcSetVehiclesState === 'function') {" +
             "window.__qgcSetVehiclesState(window.__qgcVehiclesState);" +
@@ -1038,6 +1073,8 @@ Item {
             if (loadRequest.status === WebEngineView.LoadStartedStatus) {
                 root._isLoading = true;
                 root._errorText = "";
+                root._lastVehicleStatesJson = "";
+                root._lastVehicleStateWasEmpty = false;
             } else if (loadRequest.status === WebEngineView.LoadSucceededStatus) {
                 root._isLoading = false;
                 root._pushStreamingConfigToPage();
@@ -1086,7 +1123,7 @@ Item {
 
     Timer {
         id: mapViewStatePollTimer
-        interval: 180
+        interval: 300
         repeat: true
         running: root.viewerOpen && !webView.loading && (root._errorText.length === 0)
         onTriggered: root._pollCurrentMapViewState()

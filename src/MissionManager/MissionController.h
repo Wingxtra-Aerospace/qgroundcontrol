@@ -49,6 +49,14 @@ public:
     MissionController(PlanMasterController* masterController, QObject* parent = nullptr);
     ~MissionController();
 
+    enum UploadStatus {
+        UploadStatusIdle = 0,
+        UploadStatusUploading,
+        UploadStatusSuccess,
+        UploadStatusFailed
+    };
+    Q_ENUM(UploadStatus)
+
     typedef struct {
         double                      maxTelemetryDistance;
         double                      totalDistance;
@@ -85,6 +93,7 @@ public:
     Q_PROPERTY(QGeoCoordinate       previousCoordinate              MEMBER _previousCoordinate          NOTIFY previousCoordinateChanged)
     Q_PROPERTY(FlightPathSegment*   splitSegment                    MEMBER _splitSegment                NOTIFY splitSegmentChanged)             ///< Segment which show show + split ui element
     Q_PROPERTY(double               progressPct                     READ progressPct                    NOTIFY progressPctChanged)
+    Q_PROPERTY(int                  uploadStatus                    READ uploadStatus                   NOTIFY uploadStatusChanged)
     Q_PROPERTY(int                  missionItemCount                READ missionItemCount               NOTIFY missionItemCountChanged)         ///< True mission item command count (only valid in Fly View)
     Q_PROPERTY(int                  currentMissionIndex             READ currentMissionIndex            NOTIFY currentMissionIndexChanged)
     Q_PROPERTY(int                  resumeMissionIndex              READ resumeMissionIndex             NOTIFY resumeMissionIndexChanged)       ///< Returns the item index two which a mission should be resumed. -1 indicates resume mission not available.
@@ -235,6 +244,7 @@ public:
     VisualMissionItem*  currentPlanViewItem         (void) const { return _currentPlanViewItem; }
     TakeoffMissionItem* takeoffMissionItem          (void) const { return _takeoffMissionItem; }
     double              progressPct                 (void) const { return _progressPct; }
+    int                 uploadStatus                (void) const { return static_cast<int>(_uploadStatus); }
     QString             surveyComplexItemName       (void) const;
     QString             corridorScanComplexItemName (void) const;
     QString             structureScanComplexItemName(void) const;
@@ -288,6 +298,7 @@ signals:
     void batteriesRequiredChanged           (int batteriesRequired);
     void plannedHomePositionChanged         (QGeoCoordinate plannedHomePosition);
     void progressPctChanged                 (double progressPct);
+    void uploadStatusChanged                (void);
     void currentMissionIndexChanged         (int currentMissionIndex);
     void currentPlanViewSeqNumChanged       (void);
     void currentPlanViewVIIndexChanged      (void);
@@ -371,6 +382,7 @@ private:
     static double           _normalizeLat                       (double lat);
     static double           _normalizeLon                       (double lon);
     static bool             _convertToMissionItems              (QmlObjectListModel* visualMissionItems, QList<MissionItem*>& rgMissionItems, QObject* missionItemParent);
+    void                    _setUploadStatus                    (UploadStatus uploadStatus);
 
 private:
     Vehicle*                    _controllerVehicle =            nullptr;
@@ -390,6 +402,7 @@ private:
     MissionFlightStatus_t       _missionFlightStatus;
     AppSettings*                _appSettings =                  nullptr;
     double                      _progressPct =                  0;
+    UploadStatus                _uploadStatus =                 UploadStatusIdle;
     int                         _currentPlanViewSeqNum =        -1;
     int                         _currentPlanViewVIIndex =       -1;
     VisualMissionItem*          _currentPlanViewItem =          nullptr;

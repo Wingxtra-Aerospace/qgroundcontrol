@@ -137,7 +137,8 @@ void FlyViewMissionCompleteDialogTest::_testRemovePlanUsesInjectedMissionControl
     QVERIFY(!source.isEmpty());
 
     QVERIFY(source.contains(QStringLiteral("function _removePlanFromVehicle()")));
+    QVERIFY(source.contains(QStringLiteral("globals.planMasterControllerFlyView.removeAllFromVehicle()")));
+    QVERIFY(source.contains(QStringLiteral("planMasterController.removeAllFromVehicle()")));
     QVERIFY(source.contains(QStringLiteral("missionController.removeAllFromVehicle()")));
     QVERIFY(!source.contains(QStringLiteral("_planController.removeAllFromVehicle()")));
 }
-

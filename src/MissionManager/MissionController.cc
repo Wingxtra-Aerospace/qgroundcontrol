@@ -232,6 +232,7 @@ void MissionController::sendToVehicle(void)
         qCWarning(MissionControllerLog) << "MissionControllerLog::sendToVehicle called while syncInProgress";
     } else {
         qCDebug(MissionControllerLog) << "MissionControllerLog::sendToVehicle";
+        _setUploadStatus(UploadStatusUploading);
         if (_visualItems->count() == 1) {
             // This prevents us from sending a possibly bogus home position to the vehicle
             QmlObjectListModel emptyModel;
@@ -2021,6 +2022,7 @@ void MissionController::_managerVehicleChanged(Vehicle* managerVehicle)
     _managerVehicle = managerVehicle;
     if (!_managerVehicle) {
         qWarning() << "MissionController::managerVehicleChanged managerVehicle=NULL";
+        _setUploadStatus(UploadStatusIdle);
         return;
     }
 
@@ -2040,6 +2042,7 @@ void MissionController::_managerVehicleChanged(Vehicle* managerVehicle)
 
     emit complexMissionItemNamesChanged();
     emit resumeMissionIndexChanged();
+    _setUploadStatus(UploadStatusIdle);
 }
 
 void MissionController::_inProgressChanged(bool inProgress)
@@ -2350,6 +2353,7 @@ void MissionController::_managerSendComplete(bool error)
 {
     // Fly view should always resync on send complete. Even on error, request a
     // vehicle reload to avoid stale mission overlays if the write actually succeeded.
+    _setUploadStatus(error ? UploadStatusFailed : UploadStatusSuccess);
     if (_flyView) {
         if (!error) {
             // Rebuild immediately from manager cache so empty mission uploads clear visuals
@@ -2360,6 +2364,14 @@ void MissionController::_managerSendComplete(bool error)
             _itemsRequested = true;
             _missionManager->loadFromVehicle();
         }
+    }
+}
+
+void MissionController::_setUploadStatus(UploadStatus uploadStatus)
+{
+    if (_uploadStatus != uploadStatus) {
+        _uploadStatus = uploadStatus;
+        emit uploadStatusChanged();
     }
 }
 

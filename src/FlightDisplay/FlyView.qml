@@ -61,6 +61,13 @@ Item {
     property real   _rightPanelWidth:       ScreenTools.defaultFontPixelWidth * 30
     property var    _mapControl:            mapControl
     property bool   _showVideoWidget:       false
+    readonly property int _paramUiHidden:       0
+    readonly property int _paramUiLoading:      1
+    readonly property int _paramUiSuccess:      2
+    readonly property int _paramUiFailed:       3
+    property int _paramUiState:                 _paramUiHidden
+    property bool _paramFetchSessionActive:     false
+    property real _normalizedParamFetchProgress:_activeVehicle ? Math.max(0.0, Math.min(1.0, _activeVehicle.loadProgress)) : 0
 
     property real   _fullItemZorder:    0
     property real   _pipItemZorder:     QGroundControl.zOrderWidgets
@@ -91,12 +98,110 @@ Item {
         visible:    !QGroundControl.videoManager.fullScreen
     }
 
+    QGCPalette {
+        id: flyProgressPal
+    }
+
+    function _paramFetchMissing() {
+        return !!(_activeVehicle && _activeVehicle.parameterManager && _activeVehicle.parameterManager.missingParameters)
+    }
+
+    function _beginParamFetchSession() {
+        if (!_activeVehicle || _activeVehicle.initialConnectComplete) {
+            return
+        }
+        _paramFetchSessionActive = true
+        _paramUiState = _paramUiLoading
+        paramFetchHideTimer.stop()
+    }
+
+    function _finalizeParamFetchSession() {
+        if (!_paramFetchSessionActive) {
+            return
+        }
+        _paramUiState = _paramFetchMissing() ? _paramUiFailed : _paramUiSuccess
+        paramFetchHideTimer.restart()
+    }
+
+    function _resetParamFetchUi() {
+        _paramUiState = _paramUiHidden
+        _paramFetchSessionActive = false
+        paramFetchHideTimer.stop()
+    }
+
+    function _syncParamFetchUiFromActiveVehicle() {
+        _resetParamFetchUi()
+        if (_activeVehicle && !_activeVehicle.initialConnectComplete) {
+            _beginParamFetchSession()
+        }
+    }
+
     Item {
         id:                 mapHolder
         anchors.top:        toolbar.bottom
         anchors.bottom:     parent.bottom
         anchors.left:       parent.left
         anchors.right:      parent.right
+
+        Rectangle {
+            id:                     parameterFetchBar
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top:            parent.top
+            anchors.topMargin:      ScreenTools.defaultFontPixelHeight * 0.22
+            width:                  Math.min(parent.width * 0.42, ScreenTools.defaultFontPixelWidth * 54)
+            height:                 ScreenTools.defaultFontPixelHeight * 1.15
+            radius:                 height * 0.5
+            color:                  Qt.rgba(0, 0, 0, 0.34)
+            border.width:           1
+            border.color:           Qt.rgba(1, 1, 1, 0.20)
+            visible:                toolbar.visible && _paramUiState !== _paramUiHidden
+            opacity:                visible ? 1 : 0
+            clip:                   true
+            z:                      QGroundControl.zOrderWidgets + 2
+
+            property color _stateColor: _paramUiState === _paramUiLoading
+                ? flyProgressPal.colorBlue
+                : (_paramUiState === _paramUiFailed ? flyProgressPal.colorRed : flyProgressPal.colorGreen)
+            property string _statusText: _paramUiState === _paramUiLoading
+                ? qsTr("Fetching parameters %1%").arg(Math.round(_normalizedParamFetchProgress * 100))
+                : (_paramUiState === _paramUiSuccess ? qsTr("Parameter fetch complete") : qsTr("Parameter fetch incomplete"))
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 180
+                    easing.type: Easing.InOutQuad
+                }
+            }
+
+            Rectangle {
+                anchors.left:       parent.left
+                anchors.top:        parent.top
+                anchors.bottom:     parent.bottom
+                radius:             parameterFetchBar.radius
+                color:              parameterFetchBar._stateColor
+                opacity:            _paramUiState === _paramUiLoading ? 0.68 : 0.92
+                width:              _paramUiState === _paramUiLoading
+                                        ? Math.max(0, parameterFetchBar.width * _normalizedParamFetchProgress)
+                                        : (_paramUiState === _paramUiHidden ? 0 : parameterFetchBar.width)
+
+                Behavior on width {
+                    NumberAnimation {
+                        duration: 130
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+
+            QGCLabel {
+                anchors.centerIn:   parent
+                text:               parameterFetchBar._statusText
+                font.pointSize:     ScreenTools.smallFontPointSize * 1.05
+                font.weight:        Font.DemiBold
+                color:              flyProgressPal.buttonHighlightText
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment:  Text.AlignVCenter
+            }
+        }
 
         FlyViewMap {
             id:                     mapControl
@@ -138,10 +243,11 @@ Item {
             id:                     openVideoButton
             width:                  ScreenTools.defaultFontPixelHeight * 3.0
             height:                 width
-            radius:                 ScreenTools.defaultFontPixelHeight * 0.35
-            color:                  Qt.rgba(0, 0, 0, 0.65)
-            border.width:           1
-            border.color:           "#66FFFFFF"
+            radius:                 ScreenTools.defaultFontPixelHeight * 0.48
+            color:                  openVideoButton._pressed ? Qt.rgba(0.08, 0.13, 0.20, 0.92) :
+                                    (openVideoButton._hovered ? Qt.rgba(0.12, 0.18, 0.28, 0.86) : Qt.rgba(0.05, 0.10, 0.18, 0.82))
+            border.width:           openVideoButton._hovered ? 1.4 : 1.0
+            border.color:           openVideoButton._hovered ? "#B3DDF6FF" : "#7AB9DAF2"
             anchors.left:           parent.left
             anchors.bottom:         parent.bottom
             anchors.margins:        _toolsMargin
@@ -150,12 +256,38 @@ Item {
                                     (_iconShown || opacity > 0.01)
             z:                      QGroundControl.zOrderWidgets + 1
             opacity:                _iconShown ? 1 : 0
-            scale:                  _iconShown ? 1 : 0.88
+            scale:                  _iconShown ? (openVideoButton._pressed ? 0.96 : (openVideoButton._hovered ? 1.03 : 1.0)) : 0.88
             transformOrigin:        Item.Center
 
             property bool _iconShown: QGroundControl.videoManager.hasVideo &&
                                       !QGroundControl.videoManager.fullScreen &&
                                       !_showVideoWidget
+            property bool _hovered: openVideoMouseArea.containsMouse && !ScreenTools.isMobile
+            property bool _pressed: openVideoMouseArea.pressed
+
+            Rectangle {
+                anchors.fill:       parent
+                anchors.margins:    -2
+                radius:             openVideoButton.radius + 2
+                color:              "transparent"
+                border.width:       openVideoButton._hovered ? 1.2 : 0.8
+                border.color:       openVideoButton._hovered ? "#4472C1FF" : "#2C5B88CC"
+                opacity:            openVideoButton._iconShown ? 0.9 : 0
+            }
+
+            Rectangle {
+                anchors.fill:       parent
+                anchors.margins:    1
+                radius:             Math.max(2, openVideoButton.radius - 1)
+                color:              "transparent"
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0.0; color: "#35FFFFFF" }
+                    GradientStop { position: 0.5; color: "#12FFFFFF" }
+                    GradientStop { position: 1.0; color: "#00000000" }
+                }
+                opacity:            openVideoButton._iconShown ? 1 : 0
+            }
 
             Behavior on opacity {
                 NumberAnimation {
@@ -178,12 +310,14 @@ Item {
                 sourceSize.height:      height
                 source:                 "/qmlimages/camera_video.svg"
                 fillMode:               Image.PreserveAspectFit
-                color:                  "white"
+                color:                  openVideoButton._hovered ? "#F4FBFF" : "#E8F4FF"
             }
 
             MouseArea {
+                id:             openVideoMouseArea
                 anchors.fill: parent
                 enabled: openVideoButton._iconShown
+                hoverEnabled:   !ScreenTools.isMobile
                 onClicked: {
                     _showVideoWidget = true
                     _pipView._setPipIsExpanded(true)
@@ -272,4 +406,48 @@ Item {
             }
         }
     }
+
+    Connections {
+        target: _activeVehicle
+
+        function onLoadProgressChanged() {
+            if (!_activeVehicle) {
+                _resetParamFetchUi()
+                return
+            }
+
+            if (!_activeVehicle.initialConnectComplete) {
+                _beginParamFetchSession()
+            } else {
+                _finalizeParamFetchSession()
+            }
+        }
+
+        function onInitialConnectComplete() {
+            _finalizeParamFetchSession()
+        }
+    }
+
+    Connections {
+        target: _activeVehicle && _activeVehicle.parameterManager ? _activeVehicle.parameterManager : null
+
+        function onMissingParametersChanged() {
+            if (_activeVehicle && _activeVehicle.initialConnectComplete && _paramFetchSessionActive) {
+                _finalizeParamFetchSession()
+            }
+        }
+    }
+
+    Timer {
+        id:             paramFetchHideTimer
+        interval:       3200
+        onTriggered: {
+            _paramUiState = _paramUiHidden
+            _paramFetchSessionActive = false
+        }
+    }
+
+    on_ActiveVehicleChanged: _syncParamFetchUiFromActiveVehicle()
+
+    Component.onCompleted: _syncParamFetchUiFromActiveVehicle()
 }

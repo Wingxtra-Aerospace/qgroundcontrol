@@ -59,6 +59,13 @@ Item {
     property var    _vehicleID
     property bool   _triggerSubmit
     property bool   _resetRegisterFlightPlan
+    readonly property int _uploadUiHidden:              0
+    readonly property int _uploadUiUploading:           1
+    readonly property int _uploadUiSuccess:             2
+    readonly property int _uploadUiFailed:              3
+    property int _uploadUiState:                        _uploadUiHidden
+    property bool _uploadSessionActive:                 false
+    property real _normalizedUploadProgressPct:         _missionController ? Math.max(0.0, Math.min(1.0, _missionController.progressPct)) : 0
 
     readonly property var       _layers:                    [_layerMission, _layerGeoFence, _layerRallyPoints]
     readonly property var       _layersUTMSP:               [_layerMission, _layerRallyPoints, _layerUTMSP] //Adds additional UTMSP layer
@@ -329,6 +336,111 @@ Item {
     PlanViewToolBar {
         id:                     planToolBar
         planMasterController:   _planMasterController
+        z:                      QGroundControl.zOrderWidgets + 1
+    }
+
+    QGCPalette {
+        id: uploadBarPal
+    }
+
+    Rectangle {
+        id:                     missionUploadBar
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top:            planToolBar.bottom
+        anchors.topMargin:      ScreenTools.defaultFontPixelHeight * 0.22
+        width:                  Math.min(parent.width * 0.42, ScreenTools.defaultFontPixelWidth * 54)
+        height:                 ScreenTools.defaultFontPixelHeight * 1.15
+        radius:                 height * 0.5
+        color:                  Qt.rgba(0, 0, 0, 0.34)
+        border.width:           1
+        border.color:           Qt.rgba(1, 1, 1, 0.20)
+        visible:                _uploadUiState !== _uploadUiHidden
+        opacity:                visible ? 1 : 0
+        clip:                   true
+        z:                      QGroundControl.zOrderWidgets + 2
+
+        property color _stateColor: _uploadUiState === _uploadUiUploading
+            ? uploadBarPal.colorBlue
+            : (_uploadUiState === _uploadUiFailed ? uploadBarPal.colorRed : uploadBarPal.colorGreen)
+        property string _statusText: _uploadUiState === _uploadUiUploading
+            ? qsTr("Uploading mission %1%").arg(Math.round(_normalizedUploadProgressPct * 100))
+            : (_uploadUiState === _uploadUiSuccess ? qsTr("Mission upload successful") : qsTr("Mission upload failed"))
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.InOutQuad
+            }
+        }
+
+        Rectangle {
+            anchors.left:       parent.left
+            anchors.top:        parent.top
+            anchors.bottom:     parent.bottom
+            radius:             missionUploadBar.radius
+            color:              missionUploadBar._stateColor
+            opacity:            _uploadUiState === _uploadUiUploading ? 0.68 : 0.92
+            width:              _uploadUiState === _uploadUiUploading
+                                    ? Math.max(0, missionUploadBar.width * _normalizedUploadProgressPct)
+                                    : (_uploadUiState === _uploadUiHidden ? 0 : missionUploadBar.width)
+
+            Behavior on width {
+                NumberAnimation {
+                    duration: 130
+                    easing.type: Easing.OutCubic
+                }
+            }
+        }
+
+        QGCLabel {
+            anchors.centerIn:   parent
+            text:               missionUploadBar._statusText
+            font.pointSize:     ScreenTools.smallFontPointSize * 1.05
+            font.weight:        Font.DemiBold
+            color:              uploadBarPal.buttonHighlightText
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment:  Text.AlignVCenter
+        }
+    }
+
+    function _applyMissionUploadUiStatus(status) {
+        if (status === _uploadUiUploading) {
+            _uploadSessionActive = true
+            _uploadUiState = _uploadUiUploading
+            uploadStatusHideTimer.stop()
+        } else if (status === _uploadUiSuccess && _uploadSessionActive) {
+            _uploadUiState = _uploadUiSuccess
+            uploadStatusHideTimer.restart()
+        } else if (status === _uploadUiFailed && _uploadSessionActive) {
+            _uploadUiState = _uploadUiFailed
+            uploadStatusHideTimer.restart()
+        }
+    }
+
+    Connections {
+        target: _missionController
+
+        function onUploadStatusChanged() {
+            _applyMissionUploadUiStatus(_missionController.uploadStatus)
+        }
+    }
+
+    Timer {
+        id:             uploadStatusHideTimer
+        interval:       3200
+        onTriggered: {
+            _uploadUiState = _uploadUiHidden
+            _uploadSessionActive = false
+        }
+    }
+
+    on_MissionControllerChanged: {
+        _uploadUiState = _uploadUiHidden
+        _uploadSessionActive = false
+        uploadStatusHideTimer.stop()
+        if (_missionController) {
+            _applyMissionUploadUiStatus(_missionController.uploadStatus)
+        }
     }
 
     Item {

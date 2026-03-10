@@ -47,21 +47,55 @@ MapQuickItem {
         "#FB86C3", // pink
         "#9CDF40"  // lime
     ]
+    property var    _vehicleIconEdgeColorPalette: [
+        "#A23D25", // warm red-orange edge
+        "#1E7AA8", // sky blue edge
+        "#2F8A49", // green edge
+        "#A6852A", // amber edge
+        "#7C48AE", // violet edge
+        "#198F80", // aqua edge
+        "#A44D7A", // pink edge
+        "#6B922A"  // lime edge
+    ]
+    property string _vehicleOpaqueIconSource: (vehicle && vehicle.vehicleImageOpaque && vehicle.vehicleImageOpaque.length > 0)
+        ? vehicle.vehicleImageOpaque
+        : "/qmlimages/vehicleArrowOpaque.svg"
+    property string _vehicleOutlineIconSource: (vehicle && vehicle.vehicleImageOutline && vehicle.vehicleImageOutline.length > 0)
+        ? vehicle.vehicleImageOutline
+        : "/qmlimages/vehicleArrowOutline.svg"
     property color  _vehicleIconColor: _adsbVehicle
         ? "white"
         : _vehicleIconColorForId(vehicle ? vehicle.id : 0)
+    property color  _vehicleIconEdgeColor: _adsbVehicle
+        ? Qt.rgba(1, 1, 1, 0.85)
+        : _vehicleIconEdgeColorForId(vehicle ? vehicle.id : 0)
 
-    function _vehicleIconColorForId(vehicleId) {
+    function _vehicleIconPaletteIndexForId(vehicleId, palette) {
         const key = String(vehicleId === undefined || vehicleId === null ? "active" : vehicleId)
         let hash = 0
         for (let i = 0; i < key.length; i++) {
             hash = ((hash * 31) + key.charCodeAt(i)) >>> 0
         }
+        if (!palette || palette.length === 0) {
+            return 0
+        }
+        return hash % palette.length
+    }
+
+    function _vehicleIconColorForId(vehicleId) {
         const palette = _vehicleIconColorPalette
         if (!palette || palette.length === 0) {
             return "white"
         }
-        return palette[hash % palette.length]
+        return palette[_vehicleIconPaletteIndexForId(vehicleId, palette)]
+    }
+
+    function _vehicleIconEdgeColorForId(vehicleId) {
+        const palette = _vehicleIconEdgeColorPalette
+        if (!palette || palette.length === 0) {
+            return Qt.rgba(0, 0, 0, 0.75)
+        }
+        return palette[_vehicleIconPaletteIndexForId(vehicleId, palette)]
     }
 
     sourceItem: Item {
@@ -165,14 +199,30 @@ MapQuickItem {
             }
 
             QGCColoredImage {
+                anchors.centerIn:   parent
                 width:              parent.width
                 height:             parent.height
                 visible:            !_adsbVehicle
-                source:             "/qmlimages/vehicleArrowOpaque.svg"
+                source:             _root._vehicleOutlineIconSource
+                mipmap:             true
+                sourceSize.width:   _root.size
+                fillMode:           Image.PreserveAspectFit
+                color:              _root._vehicleIconEdgeColor
+                scale:              1.06
+                opacity:            0.96
+            }
+
+            QGCColoredImage {
+                anchors.centerIn:   parent
+                width:              parent.width
+                height:             parent.height
+                visible:            !_adsbVehicle
+                source:             _root._vehicleOpaqueIconSource
                 mipmap:             true
                 sourceSize.width:   _root.size
                 fillMode:           Image.PreserveAspectFit
                 color:              _root._vehicleIconColor
+                scale:              0.95
             }
         }
 

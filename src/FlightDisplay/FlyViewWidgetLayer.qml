@@ -381,6 +381,7 @@ Item {
     }
 
     FlyViewMissionCompleteDialog {
+        planMasterController:   _planMasterController
         missionController:      _missionController
         geoFenceController:     _geoFenceController
         rallyPointController:   _rallyPointController

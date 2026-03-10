@@ -24,6 +24,7 @@ Item {
     signal missionCompleteDialogRequested()
     signal removePlanFromVehicleRequested()
 
+    property var planMasterController
     property var missionController
     property var geoFenceController
     property var rallyPointController
@@ -64,12 +65,22 @@ Item {
     }
 
     function _removePlanFromVehicle() {
-        if (!missionController || (typeof missionController.removeAllFromVehicle !== "function")) {
+        if (globals && globals.planMasterControllerFlyView) {
+            removePlanFromVehicleRequested()
+            globals.planMasterControllerFlyView.removeAllFromVehicle()
             return
         }
 
-        removePlanFromVehicleRequested()
-        missionController.removeAllFromVehicle()
+        if (planMasterController) {
+            removePlanFromVehicleRequested()
+            planMasterController.removeAllFromVehicle()
+            return
+        }
+
+        if (missionController) {
+            removePlanFromVehicleRequested()
+            missionController.removeAllFromVehicle()
+        }
     }
 
     on_ActiveVehicleChanged: {
