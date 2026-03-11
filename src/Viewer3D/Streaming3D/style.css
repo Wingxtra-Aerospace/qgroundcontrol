@@ -111,7 +111,7 @@ html, body, #globe {
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.75);
     pointer-events: none;
     user-select: none;
-    white-space: nowrap;
+    white-space: pre-line;
     transform: translateZ(0);
 }
 

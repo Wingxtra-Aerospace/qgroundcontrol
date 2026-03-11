@@ -44,7 +44,10 @@
     let mapLoaded = false;
     let mapInitializing = false;
     let streamingConfig = {
-        token: ""
+        token: "",
+        vehicleIconScale: 1.0,
+        trailThicknessScale: 1.0,
+        missionColorIntensity: 1.0
     };
     let activeStatusType = "";
     let pendingMapViewState = null;
@@ -75,11 +78,15 @@
     let missionLayerNeedsUpload = false;
     let missionLayerState = null;
     let missionDebugMarkers = [];
+    let missionDebugMarkerStates = [];
     let missionDirectionMarkers = [];
     let vehicleTrailHistories = new Map();
     let vehicleStableRenderStates = new Map();
     let mapDeclutterLayerVisibilityCache = new Map();
     let lastTrailGeometryRefreshMs = 0;
+    let lastFrameTimestampMs = 0;
+    let smoothedFrameIntervalMs = 1000 / 42.0;
+    let lastMissionLabelLayoutMs = 0;
 
     const MIN_MAP_ZOOM = 2.0;
     const MAX_MAP_ZOOM = 20.0;
@@ -122,6 +129,8 @@
     const DEFAULT_VEHICLE_ICON_SOURCE = "/qmlimages/vehicleArrowOpaque.svg";
     const DEFAULT_VEHICLE_ICON_COLOR = "#FFFFFF";
     const VEHICLE_MARKER_SIZE_PX = 56;
+    const VEHICLE_MARKER_SIZE_MIN_PX = 42;
+    const VEHICLE_MARKER_SIZE_MAX_PX = 92;
     const VEHICLE_NUMBER_VERTICAL_OFFSET_PX = 28;
     const VEHICLE_TELEMETRY_VERTICAL_OFFSET_PX = 52;
     const VEHICLE_ALTITUDE_MISMATCH_TOLERANCE_METERS = 20.0;
@@ -142,6 +151,8 @@
     const MISSION_LINE_DIAMETER_METERS = 1.224;
     const MISSION_LABEL_OFFSET_X_PX = 10;
     const MISSION_DIRECTION_ARROW_COLOR = "#ffffff";
+    const ENABLE_MISSION_WAYPOINT_LABELS = true;
+    const ENABLE_MISSION_WAYPOINT_LABEL_LOD = false;
     const MISSION_DIRECTION_ARROW_FRACTION = 0.75;
     const MISSION_ARROW_ROUTE_MATCH_TOLERANCE_METERS = 120.0;
     const MISSION_DIRECTION_CONE_LENGTH_METERS = 7.28;
@@ -150,13 +161,26 @@
     const MISSION_RTL_DASH_LENGTH_METERS = 6.0;
     const MISSION_RTL_DASH_GAP_METERS = 4.0;
     const VEHICLE_TRAIL_LINE_DIAMETER_METERS = 1.35;
+    const VEHICLE_TRAIL_LINE_DIAMETER_MIN_METERS = 0.8;
+    const VEHICLE_TRAIL_LINE_DIAMETER_MAX_METERS = 3.2;
+    const MISSION_LINE_DIAMETER_MIN_METERS = 0.82;
+    const MISSION_LINE_DIAMETER_MAX_METERS = 2.8;
     const VEHICLE_TRAIL_MAX_AGE_MS = 85000;
     const VEHICLE_TRAIL_MAX_POINTS = 300;
     const VEHICLE_TRAIL_MIN_HORIZONTAL_STEP_METERS = 0.7;
     const VEHICLE_TRAIL_MIN_VERTICAL_STEP_METERS = 0.45;
     const VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MS = 160;
+    const VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MIN_MS = 100;
+    const VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MAX_MS = 420;
     const DISARMED_POSITION_DEADBAND_METERS = 7.0;
     const DISARMED_ALTITUDE_DEADBAND_METERS = 2.0;
+    const VEHICLE_INTERPOLATION_SNAP_DISTANCE_METERS = 120.0;
+    const VEHICLE_INTERPOLATION_MIN_ALPHA = 0.2;
+    const VEHICLE_INTERPOLATION_MAX_WINDOW_MS = 240;
+    const VEHICLE_INTERPOLATION_MIN_WINDOW_MS = 90;
+    const FRAME_INTERVAL_SMOOTHING_FACTOR = 0.12;
+    const MISSION_LABEL_LAYOUT_INTERVAL_MS = 130;
+    const MISSION_LABEL_OVERLAP_PADDING_PX = 6;
     const VEHICLE_TRAIL_COLOR_PALETTE = [
         [0.976, 0.392, 0.259, 0.95], // warm red-orange
         [0.235, 0.757, 0.996, 0.95], // sky blue
@@ -214,6 +238,128 @@
 
     function clampValue(value, minValue, maxValue) {
         return Math.max(minValue, Math.min(maxValue, value));
+    }
+
+    function monotonicNowMs() {
+        if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+            return performance.now();
+        }
+        return Date.now();
+    }
+
+    function updateFrameTimingSample(sampleTimestampMs) {
+        const sampleMs = Number(sampleTimestampMs);
+        if (!Number.isFinite(sampleMs)) {
+            return;
+        }
+
+        if (Number.isFinite(lastFrameTimestampMs) && lastFrameTimestampMs > 0) {
+            const deltaMs = sampleMs - lastFrameTimestampMs;
+            if (Number.isFinite(deltaMs) && deltaMs > 1.0 && deltaMs < 2500.0) {
+                smoothedFrameIntervalMs =
+                    (smoothedFrameIntervalMs * (1.0 - FRAME_INTERVAL_SMOOTHING_FACTOR)) +
+                    (deltaMs * FRAME_INTERVAL_SMOOTHING_FACTOR);
+            }
+        }
+        lastFrameTimestampMs = sampleMs;
+    }
+
+    function estimatedRenderFps() {
+        const intervalMs = Number(smoothedFrameIntervalMs);
+        if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+            return 60.0;
+        }
+        return clampValue(1000.0 / intervalMs, 1.0, 120.0);
+    }
+
+    function currentMapZoomLevel() {
+        if (!map || !mapLoaded || typeof map.getZoom !== "function") {
+            return defaultMapViewState.zoom;
+        }
+        const zoom = Number(map.getZoom());
+        return Number.isFinite(zoom) ? clampZoomLevel(zoom) : defaultMapViewState.zoom;
+    }
+
+    function adaptiveMarkerSmoothingWindowMs() {
+        const fps = estimatedRenderFps();
+        if (fps >= 55.0) {
+            return VEHICLE_INTERPOLATION_MIN_WINDOW_MS;
+        }
+        if (fps >= 35.0) {
+            return 130.0;
+        }
+        if (fps >= 24.0) {
+            return 170.0;
+        }
+        return VEHICLE_INTERPOLATION_MAX_WINDOW_MS;
+    }
+
+    function adaptiveTrailSamplingConfig() {
+        const fps = estimatedRenderFps();
+        const zoom = currentMapZoomLevel();
+
+        let horizontalStepMeters = VEHICLE_TRAIL_MIN_HORIZONTAL_STEP_METERS;
+        let verticalStepMeters = VEHICLE_TRAIL_MIN_VERTICAL_STEP_METERS;
+        let maxPoints = VEHICLE_TRAIL_MAX_POINTS;
+
+        if (fps < 32.0) {
+            horizontalStepMeters *= 1.35;
+            verticalStepMeters *= 1.20;
+            maxPoints = Math.round(maxPoints * 0.82);
+        }
+        if (fps < 24.0) {
+            horizontalStepMeters *= 1.55;
+            verticalStepMeters *= 1.30;
+            maxPoints = Math.round(maxPoints * 0.72);
+        }
+        if (fps < 18.0) {
+            horizontalStepMeters *= 1.75;
+            verticalStepMeters *= 1.40;
+            maxPoints = Math.round(maxPoints * 0.62);
+        }
+
+        if (zoom < 12.0) {
+            horizontalStepMeters *= 1.35;
+            maxPoints = Math.round(maxPoints * 0.84);
+        }
+        if (zoom < 9.0) {
+            horizontalStepMeters *= 1.55;
+            maxPoints = Math.round(maxPoints * 0.72);
+        }
+
+        return {
+            horizontalStepMeters: Math.max(VEHICLE_TRAIL_MIN_HORIZONTAL_STEP_METERS, horizontalStepMeters),
+            verticalStepMeters: Math.max(VEHICLE_TRAIL_MIN_VERTICAL_STEP_METERS, verticalStepMeters),
+            maxPoints: Math.max(80, Math.min(VEHICLE_TRAIL_MAX_POINTS, maxPoints))
+        };
+    }
+
+    function adaptiveTrailRefreshIntervalMs() {
+        const fps = estimatedRenderFps();
+        const zoom = currentMapZoomLevel();
+        let refreshIntervalMs = VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MS;
+
+        if (fps < 30.0) {
+            refreshIntervalMs *= 1.25;
+        }
+        if (fps < 24.0) {
+            refreshIntervalMs *= 1.30;
+        }
+        if (fps < 18.0) {
+            refreshIntervalMs *= 1.35;
+        }
+
+        if (zoom < 11.0) {
+            refreshIntervalMs *= 1.2;
+        } else if (zoom > 15.0 && fps >= 28.0) {
+            refreshIntervalMs *= 0.9;
+        }
+
+        return clampValue(
+            Math.round(refreshIntervalMs),
+            VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MIN_MS,
+            VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MAX_MS
+        );
     }
 
     function normalizeLongitude(longitude) {
@@ -439,14 +585,111 @@
         };
     }
 
+    function clampRatio(value, fallback, minValue, maxValue) {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+            return fallback;
+        }
+        return clampValue(numericValue, minValue, maxValue);
+    }
+
     function normalizeConfig(config) {
         const tokenValue = config && config.token !== undefined && config.token !== null
             ? String(config.token).trim()
             : "";
+        const vehicleIconScale = clampRatio(
+            config ? config.vehicleIconScale : Number.NaN,
+            1.0,
+            0.65,
+            1.85
+        );
+        const trailThicknessScale = clampRatio(
+            config ? config.trailThicknessScale : Number.NaN,
+            1.0,
+            0.55,
+            2.2
+        );
+        const missionColorIntensity = clampRatio(
+            config ? config.missionColorIntensity : Number.NaN,
+            1.0,
+            0.55,
+            1.65
+        );
 
         return {
-            token: tokenValue
+            token: tokenValue,
+            vehicleIconScale: vehicleIconScale,
+            trailThicknessScale: trailThicknessScale,
+            missionColorIntensity: missionColorIntensity
         };
+    }
+
+    function effectiveVehicleMarkerSizePx() {
+        const scaledSize = VEHICLE_MARKER_SIZE_PX * clampRatio(
+            streamingConfig.vehicleIconScale,
+            1.0,
+            0.65,
+            1.85
+        );
+        return clampValue(scaledSize, VEHICLE_MARKER_SIZE_MIN_PX, VEHICLE_MARKER_SIZE_MAX_PX);
+    }
+
+    function effectiveVehicleNumberOffsetPx() {
+        return Math.round(
+            VEHICLE_NUMBER_VERTICAL_OFFSET_PX * clampRatio(streamingConfig.vehicleIconScale, 1.0, 0.65, 1.85)
+        );
+    }
+
+    function effectiveVehicleTelemetryOffsetPx() {
+        return Math.round(
+            VEHICLE_TELEMETRY_VERTICAL_OFFSET_PX * clampRatio(streamingConfig.vehicleIconScale, 1.0, 0.65, 1.85)
+        );
+    }
+
+    function effectiveMissionLineDiameterMeters() {
+        const scaledDiameter = MISSION_LINE_DIAMETER_METERS * clampRatio(
+            streamingConfig.trailThicknessScale,
+            1.0,
+            0.55,
+            2.2
+        );
+        return clampValue(
+            scaledDiameter,
+            MISSION_LINE_DIAMETER_MIN_METERS,
+            MISSION_LINE_DIAMETER_MAX_METERS
+        );
+    }
+
+    function effectiveTrailLineDiameterMeters() {
+        const scaledDiameter = VEHICLE_TRAIL_LINE_DIAMETER_METERS * clampRatio(
+            streamingConfig.trailThicknessScale,
+            1.0,
+            0.55,
+            2.2
+        );
+        return clampValue(
+            scaledDiameter,
+            VEHICLE_TRAIL_LINE_DIAMETER_MIN_METERS,
+            VEHICLE_TRAIL_LINE_DIAMETER_MAX_METERS
+        );
+    }
+
+    function colorWithIntensity(color, intensity) {
+        if (!Array.isArray(color) || color.length < 4) {
+            return [1.0, 1.0, 1.0, 1.0];
+        }
+
+        const factor = clampRatio(intensity, 1.0, 0.55, 1.65);
+        return [
+            clampValue(Number(color[0]) * factor, 0.0, 1.0),
+            clampValue(Number(color[1]) * factor, 0.0, 1.0),
+            clampValue(Number(color[2]) * factor, 0.0, 1.0),
+            clampValue(Number(color[3]), 0.0, 1.0)
+        ];
+    }
+
+    function currentMissionColorIntensity() {
+        return clampRatio(streamingConfig.missionColorIntensity, 1.0, 0.55, 1.65);
     }
 
     function normalizeHeadingDegrees(headingDegrees) {
@@ -597,7 +840,10 @@
         for (const vehicleState of vehicleStates) {
             const normalized = normalizeVehicleState(vehicleState);
             if (normalized) {
-                normalizedStates.push(normalized);
+                const stabilized = stabilizeVehicleRenderState(normalized);
+                if (stabilized) {
+                    normalizedStates.push(stabilized);
+                }
             }
         }
         return normalizedStates;
@@ -608,10 +854,15 @@
             return null;
         }
 
+        const sampleTimestampMs = monotonicNowMs();
         const vehicleId = normalizedVehicleState.id || "active";
         const previousState = vehicleStableRenderStates.get(vehicleId);
         const groundSpeed = Number(normalizedVehicleState.groundSpeed);
         const stationary = !Number.isFinite(groundSpeed) || groundSpeed <= 1.0;
+        const stampedState = Object.assign({}, normalizedVehicleState, {
+            _renderStateTimestampMs: sampleTimestampMs
+        });
+
         if (normalizedVehicleState.armed !== true && stationary && previousState) {
             const horizontalDriftMeters = greatCircleDistanceMeters(
                 previousState.latitude,
@@ -632,20 +883,92 @@
                 const stabilizedState = Object.assign({}, normalizedVehicleState, {
                     latitude: previousState.latitude,
                     longitude: previousState.longitude,
+                    heading: Number.isFinite(previousState.heading)
+                        ? previousState.heading
+                        : normalizedVehicleState.heading,
                     altitudeAmsl: Number.isFinite(previousState.altitudeAmsl)
                         ? previousState.altitudeAmsl
                         : normalizedVehicleState.altitudeAmsl,
                     altitudeRelative: Number.isFinite(previousState.altitudeRelative)
                         ? previousState.altitudeRelative
-                        : normalizedVehicleState.altitudeRelative
+                        : normalizedVehicleState.altitudeRelative,
+                    _renderStateTimestampMs: sampleTimestampMs
                 });
                 vehicleStableRenderStates.set(vehicleId, stabilizedState);
                 return stabilizedState;
             }
         }
 
-        vehicleStableRenderStates.set(vehicleId, normalizedVehicleState);
-        return normalizedVehicleState;
+        if (!previousState) {
+            vehicleStableRenderStates.set(vehicleId, stampedState);
+            return stampedState;
+        }
+
+        const horizontalDistanceMeters = greatCircleDistanceMeters(
+            previousState.latitude,
+            previousState.longitude,
+            normalizedVehicleState.latitude,
+            normalizedVehicleState.longitude
+        );
+        if (Number.isFinite(horizontalDistanceMeters) &&
+                horizontalDistanceMeters >= VEHICLE_INTERPOLATION_SNAP_DISTANCE_METERS) {
+            vehicleStableRenderStates.set(vehicleId, stampedState);
+            return stampedState;
+        }
+
+        const previousTimestampMs = Number(previousState._renderStateTimestampMs);
+        const elapsedMs = Number.isFinite(previousTimestampMs)
+            ? Math.max(1.0, sampleTimestampMs - previousTimestampMs)
+            : adaptiveMarkerSmoothingWindowMs();
+        const smoothingWindowMs = adaptiveMarkerSmoothingWindowMs();
+        let alpha = clampValue(elapsedMs / smoothingWindowMs, VEHICLE_INTERPOLATION_MIN_ALPHA, 1.0);
+        if (!Number.isFinite(alpha)) {
+            alpha = 1.0;
+        }
+
+        if (alpha >= 0.999) {
+            vehicleStableRenderStates.set(vehicleId, stampedState);
+            return stampedState;
+        }
+
+        const previousLatitude = Number(previousState.latitude);
+        const previousLongitude = Number(previousState.longitude);
+        const previousHeading = Number(previousState.heading);
+        const previousAltitudeAmsl = Number(previousState.altitudeAmsl);
+        const previousAltitudeRelative = Number(previousState.altitudeRelative);
+        const previousHomeAltitudeAmsl = Number(previousState.homeAltitudeAmsl);
+
+        const longitudeDelta = normalizeDeltaLongitude(
+            normalizedVehicleState.longitude - previousLongitude
+        );
+        const headingDelta = normalizeDeltaLongitude(
+            normalizedVehicleState.heading - previousHeading
+        );
+
+        const interpolatedState = Object.assign({}, normalizedVehicleState, {
+            latitude: (Number.isFinite(previousLatitude) && Number.isFinite(normalizedVehicleState.latitude))
+                ? clampLatitude(previousLatitude + ((normalizedVehicleState.latitude - previousLatitude) * alpha))
+                : normalizedVehicleState.latitude,
+            longitude: (Number.isFinite(previousLongitude) && Number.isFinite(normalizedVehicleState.longitude))
+                ? normalizeLongitude(previousLongitude + (longitudeDelta * alpha))
+                : normalizedVehicleState.longitude,
+            heading: (Number.isFinite(previousHeading) && Number.isFinite(normalizedVehicleState.heading))
+                ? normalizeHeadingDegrees(previousHeading + (headingDelta * alpha))
+                : normalizedVehicleState.heading,
+            altitudeAmsl: (Number.isFinite(previousAltitudeAmsl) && Number.isFinite(normalizedVehicleState.altitudeAmsl))
+                ? (previousAltitudeAmsl + ((normalizedVehicleState.altitudeAmsl - previousAltitudeAmsl) * alpha))
+                : normalizedVehicleState.altitudeAmsl,
+            altitudeRelative: (Number.isFinite(previousAltitudeRelative) && Number.isFinite(normalizedVehicleState.altitudeRelative))
+                ? (previousAltitudeRelative + ((normalizedVehicleState.altitudeRelative - previousAltitudeRelative) * alpha))
+                : normalizedVehicleState.altitudeRelative,
+            homeAltitudeAmsl: (Number.isFinite(previousHomeAltitudeAmsl) && Number.isFinite(normalizedVehicleState.homeAltitudeAmsl))
+                ? (previousHomeAltitudeAmsl + ((normalizedVehicleState.homeAltitudeAmsl - previousHomeAltitudeAmsl) * alpha))
+                : normalizedVehicleState.homeAltitudeAmsl,
+            _renderStateTimestampMs: sampleTimestampMs
+        });
+
+        vehicleStableRenderStates.set(vehicleId, interpolatedState);
+        return interpolatedState;
     }
 
     function normalizeVehicleCenterRequest(centerRequest) {
@@ -860,9 +1183,16 @@
             Math.abs(y - centerY) <= maxCenterOffsetY;
     }
 
-    function resolveVehicleAltitudeAboveGround(normalizedVehicleState) {
+    function resolveVehicleAltitudeMetrics(normalizedVehicleState) {
         if (!normalizedVehicleState) {
-            return 0.0;
+            return {
+                aglMeters: 0.0,
+                amslMeters: Number.NaN,
+                relativeMeters: Number.NaN,
+                homeAmslMeters: Number.NaN,
+                terrainAmslMeters: Number.NaN,
+                source: "fallback_zero"
+            };
         }
 
         const terrainRenderedAmsl = sampleTerrainAltitudeAmsl(
@@ -870,6 +1200,21 @@
             normalizedVehicleState.latitude,
             true
         );
+        const resolver = window.__qgcAltitudeResolver;
+        if (resolver && typeof resolver.resolveAltitudeMetrics === "function") {
+            const resolved = resolver.resolveAltitudeMetrics({
+                altitudeAmsl: normalizedVehicleState.altitudeAmsl,
+                altitudeRelative: normalizedVehicleState.altitudeRelative,
+                homeAltitudeAmsl: normalizedVehicleState.homeAltitudeAmsl,
+                terrainAltitudeAmsl: terrainRenderedAmsl,
+                mismatchToleranceMeters: VEHICLE_ALTITUDE_MISMATCH_TOLERANCE_METERS
+            });
+            if (resolved && Number.isFinite(Number(resolved.aglMeters))) {
+                return resolved;
+            }
+        }
+
+        // Fallback path mirrors previous resolver behavior.
         const hasAmsl = Number.isFinite(normalizedVehicleState.altitudeAmsl);
         const hasRelative = Number.isFinite(normalizedVehicleState.altitudeRelative);
         const hasHome = Number.isFinite(normalizedVehicleState.homeAltitudeAmsl);
@@ -877,37 +1222,61 @@
         const amslFromRelative = (hasRelative && hasHome)
             ? (normalizedVehicleState.homeAltitudeAmsl + normalizedVehicleState.altitudeRelative)
             : Number.NaN;
-        const aglFromAmsl = (hasAmsl && hasTerrain)
-            ? (normalizedVehicleState.altitudeAmsl - terrainRenderedAmsl)
+        const resolvedAmsl = hasAmsl ? normalizedVehicleState.altitudeAmsl : amslFromRelative;
+        const resolvedRelative = hasRelative
+            ? normalizedVehicleState.altitudeRelative
+            : (
+                Number.isFinite(resolvedAmsl) && hasHome
+                    ? (resolvedAmsl - normalizedVehicleState.homeAltitudeAmsl)
+                    : Number.NaN
+            );
+        const aglFromAmsl = (Number.isFinite(resolvedAmsl) && hasTerrain)
+            ? (resolvedAmsl - terrainRenderedAmsl)
             : Number.NaN;
         const aglFromRelative = (Number.isFinite(amslFromRelative) && hasTerrain)
             ? (amslFromRelative - terrainRenderedAmsl)
             : Number.NaN;
 
+        let aglMeters = Number.NaN;
+        let source = "unknown";
         if (Number.isFinite(aglFromAmsl) && Number.isFinite(aglFromRelative)) {
             if (Math.abs(aglFromAmsl - aglFromRelative) > VEHICLE_ALTITUDE_MISMATCH_TOLERANCE_METERS) {
-                return Math.max(0.0, aglFromRelative);
+                aglMeters = aglFromRelative;
+                source = "relative_terrain";
+            } else {
+                aglMeters = aglFromAmsl;
+                source = hasAmsl ? "amsl_terrain" : "relative_terrain";
             }
-            return Math.max(0.0, aglFromAmsl);
+        } else if (Number.isFinite(aglFromRelative)) {
+            aglMeters = aglFromRelative;
+            source = "relative_terrain";
+        } else if (Number.isFinite(aglFromAmsl)) {
+            aglMeters = aglFromAmsl;
+            source = hasAmsl ? "amsl_terrain" : "relative_terrain";
+        } else if (hasRelative) {
+            aglMeters = normalizedVehicleState.altitudeRelative;
+            source = "relative";
+        } else if (hasAmsl && hasHome) {
+            aglMeters = normalizedVehicleState.altitudeAmsl - normalizedVehicleState.homeAltitudeAmsl;
+            source = "amsl_home";
+        } else {
+            aglMeters = 0.0;
+            source = "fallback_zero";
         }
 
-        if (Number.isFinite(aglFromRelative)) {
-            return Math.max(0.0, aglFromRelative);
-        }
+        return {
+            aglMeters: Math.max(0.0, aglMeters),
+            amslMeters: Number.isFinite(resolvedAmsl) ? resolvedAmsl : Number.NaN,
+            relativeMeters: Number.isFinite(resolvedRelative) ? resolvedRelative : Number.NaN,
+            homeAmslMeters: hasHome ? normalizedVehicleState.homeAltitudeAmsl : Number.NaN,
+            terrainAmslMeters: hasTerrain ? terrainRenderedAmsl : Number.NaN,
+            source: source
+        };
+    }
 
-        if (Number.isFinite(aglFromAmsl)) {
-            return Math.max(0.0, aglFromAmsl);
-        }
-
-        if (hasRelative) {
-            return Math.max(0.0, normalizedVehicleState.altitudeRelative);
-        }
-
-        if (hasAmsl && hasHome) {
-            return Math.max(0.0, normalizedVehicleState.altitudeAmsl - normalizedVehicleState.homeAltitudeAmsl);
-        }
-
-        return 0.0;
+    function resolveVehicleAltitudeAboveGround(normalizedVehicleState) {
+        const metrics = resolveVehicleAltitudeMetrics(normalizedVehicleState);
+        return Number.isFinite(metrics.aglMeters) ? metrics.aglMeters : 0.0;
     }
 
     function normalizeMissionWaypoint(rawWaypoint) {
@@ -1147,6 +1516,7 @@
         const element = document.createElement("div");
         element.className = "qgc-waypoint-label";
         element.style.pointerEvents = "none";
+        element.dataset.qgcLodHidden = "0";
 
         element.textContent = text;
 
@@ -1208,6 +1578,8 @@
             }
         }
         missionDebugMarkers = [];
+        missionDebugMarkerStates = [];
+        lastMissionLabelLayoutMs = 0;
     }
 
     function clearMissionDirectionMarkers() {
@@ -1219,12 +1591,141 @@
         missionDirectionMarkers = [];
     }
 
+    function missionLabelStepForZoom(zoom) {
+        const safeZoom = Number.isFinite(Number(zoom))
+            ? Number(zoom)
+            : currentMapZoomLevel();
+        if (safeZoom < 8.5) {
+            return 10;
+        }
+        if (safeZoom < 10.5) {
+            return 6;
+        }
+        if (safeZoom < 12.0) {
+            return 3;
+        }
+        if (safeZoom < 13.2) {
+            return 2;
+        }
+        return 1;
+    }
+
+    function rectsOverlap(lhsRect, rhsRect, paddingPx) {
+        if (!lhsRect || !rhsRect) {
+            return false;
+        }
+        const padding = Math.max(0, Number(paddingPx) || 0);
+        if ((lhsRect.right + padding) < rhsRect.left) {
+            return false;
+        }
+        if ((rhsRect.right + padding) < lhsRect.left) {
+            return false;
+        }
+        if ((lhsRect.bottom + padding) < rhsRect.top) {
+            return false;
+        }
+        if ((rhsRect.bottom + padding) < lhsRect.top) {
+            return false;
+        }
+        return true;
+    }
+
+    function missionLabelApproximateScreenRect(marker, markerElement) {
+        if (!map || typeof map.project !== "function" || !marker || !markerElement) {
+            return null;
+        }
+
+        const markerLngLat = (typeof marker.getLngLat === "function") ? marker.getLngLat() : null;
+        if (!markerLngLat || !Number.isFinite(markerLngLat.lng) || !Number.isFinite(markerLngLat.lat)) {
+            return null;
+        }
+
+        const projected = map.project(markerLngLat);
+        if (!projected || !Number.isFinite(projected.x) || !Number.isFinite(projected.y)) {
+            return null;
+        }
+
+        const elementWidth = Math.max(40, Number(markerElement.offsetWidth) || 52);
+        const elementHeight = Math.max(20, Number(markerElement.offsetHeight) || 28);
+        const left = projected.x + MISSION_LABEL_OFFSET_X_PX;
+        const top = projected.y - (0.5 * elementHeight);
+        return {
+            left: left,
+            top: top,
+            right: left + elementWidth,
+            bottom: top + elementHeight
+        };
+    }
+
+    function applyMissionLabelLodAndOverlap() {
+        if (!map || !mapLoaded || !Array.isArray(missionDebugMarkerStates) || missionDebugMarkerStates.length === 0) {
+            return;
+        }
+
+        if (!ENABLE_MISSION_WAYPOINT_LABEL_LOD) {
+            for (const markerState of missionDebugMarkerStates) {
+                if (!markerState || !markerState.element) {
+                    continue;
+                }
+                markerState.element.dataset.qgcLodHidden = "0";
+                markerState.element.style.transform = "translateZ(0)";
+                markerState.element.style.opacity = "1.0";
+            }
+            return;
+        }
+
+        const markerCount = missionDebugMarkerStates.length;
+        if (markerCount <= 0) {
+            return;
+        }
+
+        const zoom = currentMapZoomLevel();
+        const keepStep = missionLabelStepForZoom(zoom);
+        const normalizedZoom = clampValue((zoom - 9.0) / 6.0, 0.0, 1.0);
+        const labelScale = 0.82 + (0.30 * normalizedZoom);
+        const labelOpacity = 0.66 + (0.34 * normalizedZoom);
+        const shouldKeepByStep = function (index) {
+            if (index <= 0 || index >= (markerCount - 1)) {
+                return true;
+            }
+            return (index % keepStep) === 0;
+        };
+
+        const collisionRects = [];
+        for (let index = 0; index < markerCount; index++) {
+            const markerState = missionDebugMarkerStates[index];
+            if (!markerState || !markerState.marker || !markerState.element) {
+                continue;
+            }
+            markerState.element.style.transform = "translateZ(0) scale(" + labelScale.toFixed(3) + ")";
+            markerState.element.style.opacity = labelOpacity.toFixed(3);
+
+            let hiddenByLod = !shouldKeepByStep(index);
+            if (!hiddenByLod) {
+                const screenRect = missionLabelApproximateScreenRect(markerState.marker, markerState.element);
+                if (!screenRect) {
+                    hiddenByLod = true;
+                } else {
+                    for (const existingRect of collisionRects) {
+                        if (rectsOverlap(existingRect, screenRect, MISSION_LABEL_OVERLAP_PADDING_PX)) {
+                            hiddenByLod = true;
+                            break;
+                        }
+                    }
+                    if (!hiddenByLod) {
+                        collisionRects.push(screenRect);
+                    }
+                }
+            }
+
+            markerState.element.dataset.qgcLodHidden = hiddenByLod ? "1" : "0";
+        }
+    }
+
     function setMarkerCollectionVisibility(markerCollection, visible) {
         if (!Array.isArray(markerCollection)) {
             return;
         }
-
-        const displayValue = visible ? "" : "none";
         for (const marker of markerCollection) {
             if (!marker || typeof marker.getElement !== "function") {
                 continue;
@@ -1233,7 +1734,17 @@
             if (!markerElement) {
                 continue;
             }
-            markerElement.style.display = displayValue;
+
+            if (!visible) {
+                markerElement.style.display = "none";
+                continue;
+            }
+
+            const hiddenByLod =
+                ENABLE_MISSION_WAYPOINT_LABEL_LOD &&
+                markerElement.dataset &&
+                markerElement.dataset.qgcLodHidden === "1";
+            markerElement.style.display = hiddenByLod ? "none" : "";
         }
     }
 
@@ -1293,6 +1804,9 @@
         // Declutter keeps core mission geometry (routes/points) and hides
         // auxiliary mission overlays (labels/direction markers).
         const showMissionOverlays = !declutterEnabled;
+        if (showMissionOverlays && ENABLE_MISSION_WAYPOINT_LABEL_LOD) {
+            applyMissionLabelLodAndOverlap();
+        }
         setMarkerCollectionVisibility(missionDebugMarkers, showMissionOverlays);
         setMarkerCollectionVisibility(missionDirectionMarkers, showMissionOverlays);
         applyBaseMapDeclutterState();
@@ -1307,6 +1821,9 @@
         }
 
         clearMissionDebugMarkers();
+        if (!ENABLE_MISSION_WAYPOINT_LABELS) {
+            return;
+        }
         if (!Array.isArray(debugLabels) || debugLabels.length === 0) {
             return;
         }
@@ -1333,8 +1850,15 @@
             }
             marker.addTo(map);
             missionDebugMarkers.push(marker);
+            missionDebugMarkerStates.push({
+                marker: marker,
+                element: marker.getElement ? marker.getElement() : null
+            });
         }
 
+        if (ENABLE_MISSION_WAYPOINT_LABEL_LOD) {
+            applyMissionLabelLodAndOverlap();
+        }
         applyDeclutterState();
     }
 
@@ -1388,7 +1912,75 @@
     }
 
     function applyStreamingConfig(config) {
-        streamingConfig = normalizeConfig(config);
+        const normalizedConfig = normalizeConfig(config);
+        const previousConfig = streamingConfig || normalizeConfig({});
+
+        const vehicleIconScaleChanged =
+            Math.abs(Number(normalizedConfig.vehicleIconScale) - Number(previousConfig.vehicleIconScale)) > 1e-4;
+        const trailThicknessScaleChanged =
+            Math.abs(Number(normalizedConfig.trailThicknessScale) - Number(previousConfig.trailThicknessScale)) > 1e-4;
+        const missionColorIntensityChanged =
+            Math.abs(Number(normalizedConfig.missionColorIntensity) - Number(previousConfig.missionColorIntensity)) > 1e-4;
+
+        streamingConfig = normalizedConfig;
+
+        if (!map || !mapLoaded) {
+            return;
+        }
+
+        if (vehicleIconScaleChanged) {
+            for (const marker of vehicleMarkers.values()) {
+                if (!marker || typeof marker.getElement !== "function") {
+                    continue;
+                }
+                const markerElement = marker.getElement();
+                if (!markerElement) {
+                    continue;
+                }
+                const vehicleId = markerElement.dataset && markerElement.dataset.vehicleId
+                    ? markerElement.dataset.vehicleId
+                    : "active";
+                const currentIconColor = markerElement.dataset && markerElement.dataset.iconColor
+                    ? markerElement.dataset.iconColor
+                    : vehicleIconColorForId(vehicleId);
+                updateVehicleMarkerIcon(
+                    markerElement,
+                    markerElement.dataset && markerElement.dataset.iconSource
+                        ? markerElement.dataset.iconSource
+                        : DEFAULT_VEHICLE_ICON_SOURCE,
+                    currentIconColor
+                );
+            }
+
+            for (const numberMarker of vehicleNumberMarkers.values()) {
+                if (!numberMarker || typeof numberMarker.setOffset !== "function") {
+                    continue;
+                }
+                numberMarker.setOffset([0, -effectiveVehicleNumberOffsetPx()]);
+            }
+
+            for (const telemetryMarker of vehicleTelemetryMarkers.values()) {
+                if (!telemetryMarker || typeof telemetryMarker.setOffset !== "function") {
+                    continue;
+                }
+                telemetryMarker.setOffset([0, -effectiveVehicleTelemetryOffsetPx()]);
+            }
+        }
+
+        if (trailThicknessScaleChanged) {
+            const missionsPayload = Array.isArray(window.__qgcMissionsData)
+                ? window.__qgcMissionsData
+                : (pendingMissionData || (window.__qgcMissionData ? [window.__qgcMissionData] : []));
+            if (Array.isArray(missionsPayload) && missionsPayload.length > 0) {
+                applyMissionsData(missionsPayload);
+            } else if (map.getLayer(MISSION_3D_LAYER_ID)) {
+                refreshVehicleTrailsInLayer();
+            }
+        }
+
+        if (missionColorIntensityChanged || trailThicknessScaleChanged || vehicleIconScaleChanged) {
+            map.triggerRepaint();
+        }
     }
 
     function setStatus(message, statusType) {
@@ -1674,8 +2266,9 @@
         const markerElement = document.createElement("div");
         markerElement.className = "qgc-vehicle-marker";
         markerElement.dataset.vehicleId = String(vehicleId || "active");
-        markerElement.style.width = VEHICLE_MARKER_SIZE_PX + "px";
-        markerElement.style.height = VEHICLE_MARKER_SIZE_PX + "px";
+        const markerSizePx = effectiveVehicleMarkerSizePx();
+        markerElement.style.width = markerSizePx.toFixed(1) + "px";
+        markerElement.style.height = markerSizePx.toFixed(1) + "px";
         markerElement.style.pointerEvents = "none";
         markerElement.style.userSelect = "none";
         markerElement.style.transformOrigin = "50% 50%";
@@ -1728,46 +2321,24 @@
         return numericValue.toFixed(fixedDigits) + " m";
     }
 
-    function resolveVehicleRelativeAltitudeMeters(normalizedVehicleState) {
-        if (!normalizedVehicleState) {
-            return Number.NaN;
-        }
-
-        if (Number.isFinite(normalizedVehicleState.altitudeRelative)) {
-            return normalizedVehicleState.altitudeRelative;
-        }
-
-        if (Number.isFinite(normalizedVehicleState.altitudeAmsl) &&
-                Number.isFinite(normalizedVehicleState.homeAltitudeAmsl)) {
-            return normalizedVehicleState.altitudeAmsl - normalizedVehicleState.homeAltitudeAmsl;
-        }
-
-        return Number.NaN;
-    }
-
-    function vehicleTelemetryTextFromState(normalizedVehicleState) {
+    function vehicleTelemetryTextFromState(normalizedVehicleState, precomputedAltitudeMetrics) {
         if (!normalizedVehicleState) {
             return "";
         }
 
         const numberText = vehicleNumberTextFromId(normalizedVehicleState.id);
         const idPrefix = numberText.length > 0 ? ("#" + numberText + " ") : "";
-        const altitudeRelative = resolveVehicleRelativeAltitudeMeters(normalizedVehicleState);
-        const altitudeAgl = resolveVehicleAltitudeAboveGround(normalizedVehicleState);
-        const altitudeAmsl = Number.isFinite(normalizedVehicleState.altitudeAmsl)
-            ? normalizedVehicleState.altitudeAmsl
-            : (
-                Number.isFinite(normalizedVehicleState.homeAltitudeAmsl) &&
-                Number.isFinite(normalizedVehicleState.altitudeRelative)
-            )
-                ? (normalizedVehicleState.homeAltitudeAmsl + normalizedVehicleState.altitudeRelative)
-                : Number.NaN;
-
+        const altitudeMetrics = (
+            precomputedAltitudeMetrics &&
+            Number.isFinite(Number(precomputedAltitudeMetrics.aglMeters))
+        )
+            ? precomputedAltitudeMetrics
+            : resolveVehicleAltitudeMetrics(normalizedVehicleState);
         return idPrefix +
-            "REL " + formatTelemetryMeters(altitudeRelative, 1) +
-            " | " +
-            "AGL " + formatTelemetryMeters(altitudeAgl, 1) +
-            " | AMSL " + formatTelemetryMeters(altitudeAmsl, 1);
+            "AGL " + formatTelemetryMeters(altitudeMetrics.aglMeters, 1) +
+            " | TERRAIN AMSL " + formatTelemetryMeters(altitudeMetrics.terrainAmslMeters, 1) +
+            "\n" +
+            "HOME AMSL " + formatTelemetryMeters(altitudeMetrics.homeAmslMeters, 1);
     }
 
     function createVehicleTelemetryElement(vehicleId) {
@@ -1779,12 +2350,12 @@
         return telemetryElement;
     }
 
-    function updateVehicleTelemetryElement(telemetryElement, normalizedVehicleState) {
+    function updateVehicleTelemetryElement(telemetryElement, normalizedVehicleState, precomputedAltitudeMetrics) {
         if (!telemetryElement) {
             return;
         }
 
-        const telemetryText = vehicleTelemetryTextFromState(normalizedVehicleState);
+        const telemetryText = vehicleTelemetryTextFromState(normalizedVehicleState, precomputedAltitudeMetrics);
         telemetryElement.textContent = telemetryText;
         telemetryElement.style.display = (vehicleTelemetryOverlayEnabled === true && telemetryText.length > 0)
             ? "flex"
@@ -1796,12 +2367,20 @@
             return;
         }
 
+        const markerSizePx = effectiveVehicleMarkerSizePx();
+        markerElement.style.width = markerSizePx.toFixed(1) + "px";
+        markerElement.style.height = markerSizePx.toFixed(1) + "px";
+
         const resolvedIconSource = toWebResourceUrl(iconSource);
         const vehicleId = markerElement.dataset && markerElement.dataset.vehicleId
             ? markerElement.dataset.vehicleId
             : "active";
         const resolvedIconColor = normalizeVehicleIconColor(iconColor, vehicleId);
         const urlValue = "url(\"" + resolvedIconSource.replace(/"/g, "\\\"") + "\")";
+        if (markerElement.dataset) {
+            markerElement.dataset.iconSource = resolvedIconSource;
+            markerElement.dataset.iconColor = resolvedIconColor;
+        }
         const supportsMaskImage =
             markerElement.style && (
                 ("maskImage" in markerElement.style) ||
@@ -1893,6 +2472,7 @@
 
     function clearVehicleTrailHistory() {
         vehicleTrailHistories.clear();
+        vehicleStableRenderStates.clear();
         lastTrailGeometryRefreshMs = 0;
         if (missionLayerState) {
             setMissionTrailGeometry([]);
@@ -1935,8 +2515,12 @@
         while (samples.length > 0 && samples[0].timestampMs < cutoffTime) {
             samples.shift();
         }
-        if (samples.length > VEHICLE_TRAIL_MAX_POINTS) {
-            samples.splice(0, samples.length - VEHICLE_TRAIL_MAX_POINTS);
+        const adaptiveConfig = adaptiveTrailSamplingConfig();
+        const adaptiveMaxPoints = Number.isFinite(Number(adaptiveConfig.maxPoints))
+            ? Number(adaptiveConfig.maxPoints)
+            : VEHICLE_TRAIL_MAX_POINTS;
+        if (samples.length > adaptiveMaxPoints) {
+            samples.splice(0, samples.length - adaptiveMaxPoints);
         }
     }
 
@@ -1980,6 +2564,13 @@
         };
 
         const samples = history.samples;
+        const adaptiveConfig = adaptiveTrailSamplingConfig();
+        const horizontalStepThreshold = Number.isFinite(Number(adaptiveConfig.horizontalStepMeters))
+            ? Number(adaptiveConfig.horizontalStepMeters)
+            : VEHICLE_TRAIL_MIN_HORIZONTAL_STEP_METERS;
+        const verticalStepThreshold = Number.isFinite(Number(adaptiveConfig.verticalStepMeters))
+            ? Number(adaptiveConfig.verticalStepMeters)
+            : VEHICLE_TRAIL_MIN_VERTICAL_STEP_METERS;
         if (samples.length > 0) {
             const lastSample = samples[samples.length - 1];
             const horizontalStepMeters = greatCircleDistanceMeters(
@@ -1989,8 +2580,8 @@
                 sample.longitude
             );
             const verticalStepMeters = Math.abs(sample.renderAltitudeAmsl - lastSample.renderAltitudeAmsl);
-            if (horizontalStepMeters < VEHICLE_TRAIL_MIN_HORIZONTAL_STEP_METERS &&
-                    verticalStepMeters < VEHICLE_TRAIL_MIN_VERTICAL_STEP_METERS) {
+            if (horizontalStepMeters < horizontalStepThreshold &&
+                    verticalStepMeters < verticalStepThreshold) {
                 lastSample.x = sample.x;
                 lastSample.y = sample.y;
                 lastSample.z = sample.z;
@@ -2048,7 +2639,7 @@
         const marker = new mapboxgl.Marker({
             element: element,
             anchor: "center",
-            offset: [0, -VEHICLE_NUMBER_VERTICAL_OFFSET_PX],
+            offset: [0, -effectiveVehicleNumberOffsetPx()],
             pitchAlignment: "viewport",
             rotationAlignment: "viewport"
         });
@@ -2070,7 +2661,7 @@
         const marker = new mapboxgl.Marker({
             element: element,
             anchor: "center",
-            offset: [0, -VEHICLE_TELEMETRY_VERTICAL_OFFSET_PX],
+            offset: [0, -effectiveVehicleTelemetryOffsetPx()],
             pitchAlignment: "viewport",
             rotationAlignment: "viewport"
         });
@@ -2084,6 +2675,10 @@
         }
 
         const vehicleId = normalizedVehicleState.id || "active";
+        const altitudeMetrics = resolveVehicleAltitudeMetrics(normalizedVehicleState);
+        const altitudeAgl = Number.isFinite(Number(altitudeMetrics.aglMeters))
+            ? Number(altitudeMetrics.aglMeters)
+            : 0.0;
         const marker = ensureVehicleMarker(vehicleId);
         const numberMarker = ensureVehicleNumberMarker(vehicleId);
         const telemetryMarker = vehicleTelemetryOverlayEnabled === true
@@ -2103,7 +2698,7 @@
             marker.setRotation(normalizedVehicleState.heading);
         }
         if (typeof marker.setAltitude === "function") {
-            marker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedVehicleState));
+            marker.setAltitude(altitudeAgl);
         }
         if (!marker._map) {
             marker.addTo(map);
@@ -2114,9 +2709,12 @@
                 numberMarker.getElement ? numberMarker.getElement() : null,
                 vehicleId
             );
+            if (typeof numberMarker.setOffset === "function") {
+                numberMarker.setOffset([0, -effectiveVehicleNumberOffsetPx()]);
+            }
             numberMarker.setLngLat([normalizedVehicleState.longitude, normalizedVehicleState.latitude]);
             if (typeof numberMarker.setAltitude === "function") {
-                numberMarker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedVehicleState));
+                numberMarker.setAltitude(altitudeAgl);
             }
             if (!numberMarker._map) {
                 numberMarker.addTo(map);
@@ -2126,11 +2724,15 @@
         if (telemetryMarker) {
             updateVehicleTelemetryElement(
                 telemetryMarker.getElement ? telemetryMarker.getElement() : null,
-                normalizedVehicleState
+                normalizedVehicleState,
+                altitudeMetrics
             );
+            if (typeof telemetryMarker.setOffset === "function") {
+                telemetryMarker.setOffset([0, -effectiveVehicleTelemetryOffsetPx()]);
+            }
             telemetryMarker.setLngLat([normalizedVehicleState.longitude, normalizedVehicleState.latitude]);
             if (typeof telemetryMarker.setAltitude === "function") {
-                telemetryMarker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedVehicleState));
+                telemetryMarker.setAltitude(altitudeAgl);
             }
             if (!telemetryMarker._map) {
                 telemetryMarker.addTo(map);
@@ -2153,6 +2755,10 @@
         for (const normalizedState of normalizedStates) {
             const vehicleId = normalizedState.id || "active";
             activeIds.add(vehicleId);
+            const altitudeMetrics = resolveVehicleAltitudeMetrics(normalizedState);
+            const altitudeAgl = Number.isFinite(Number(altitudeMetrics.aglMeters))
+                ? Number(altitudeMetrics.aglMeters)
+                : 0.0;
             const telemetryMarker = ensureVehicleTelemetryMarker(vehicleId);
             if (!telemetryMarker) {
                 continue;
@@ -2160,11 +2766,15 @@
 
             updateVehicleTelemetryElement(
                 telemetryMarker.getElement ? telemetryMarker.getElement() : null,
-                normalizedState
+                normalizedState,
+                altitudeMetrics
             );
+            if (typeof telemetryMarker.setOffset === "function") {
+                telemetryMarker.setOffset([0, -effectiveVehicleTelemetryOffsetPx()]);
+            }
             telemetryMarker.setLngLat([normalizedState.longitude, normalizedState.latitude]);
             if (typeof telemetryMarker.setAltitude === "function") {
-                telemetryMarker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedState));
+                telemetryMarker.setAltitude(altitudeAgl);
             }
             if (!telemetryMarker._map) {
                 telemetryMarker.addTo(map);
@@ -2184,6 +2794,10 @@
 
         if (!map || !mapLoaded) {
             return normalizedStates.length > 0;
+        }
+
+        if (normalizedStates.length > 0 && !map.getLayer(MISSION_3D_LAYER_ID)) {
+            ensureMission3DLayer();
         }
 
         const activeIds = new Set();
@@ -2213,14 +2827,21 @@
             }
         }
 
+        for (const stableVehicleId of Array.from(vehicleStableRenderStates.keys())) {
+            if (!activeIds.has(stableVehicleId)) {
+                vehicleStableRenderStates.delete(stableVehicleId);
+            }
+        }
+
         if (activeIds.size === 0) {
             setMissionTrailGeometry([]);
             lastTrailGeometryRefreshMs = nowMs;
         } else {
             const elapsedMs = nowMs - lastTrailGeometryRefreshMs;
+            const adaptiveRefreshIntervalMs = adaptiveTrailRefreshIntervalMs();
             const shouldRefreshTrails =
                 !Number.isFinite(lastTrailGeometryRefreshMs) ||
-                elapsedMs >= VEHICLE_TRAIL_GEOMETRY_REFRESH_INTERVAL_MS;
+                elapsedMs >= adaptiveRefreshIntervalMs;
             if (shouldRefreshTrails) {
                 refreshVehicleTrailsInLayer();
                 lastTrailGeometryRefreshMs = nowMs;
@@ -2616,7 +3237,7 @@
                 ? referenceSample.latitude
                 : 0.0;
             const halfWidthWorld = Math.max(
-                metersToMercatorUnits(0.5 * VEHICLE_TRAIL_LINE_DIAMETER_METERS, referenceLatitude),
+                metersToMercatorUnits(0.5 * effectiveTrailLineDiameterMeters(), referenceLatitude),
                 1e-10
             );
 
@@ -3005,7 +3626,7 @@
         const waypointVertices = [];
         const debugLabels = [];
         const directionArrows = [];
-        const missionLineRadiusMeters = 0.5 * MISSION_LINE_DIAMETER_METERS;
+        const missionLineRadiusMeters = 0.5 * effectiveMissionLineDiameterMeters();
         let origin = null;
         let hasAnyGeometry = false;
 
@@ -3092,12 +3713,14 @@
                 }
 
                 if (!isSyntheticReturnHome) {
-                    debugLabels.push({
-                        longitude: waypoint.longitude,
-                        latitude: waypoint.latitude,
-                        altitudeAboveGround: Math.max(0.0, renderAltitudeAmsl - groundRenderAltitudeAmsl),
-                        text: missionDebugText(waypoint, homeAltitudeAmsl)
-                    });
+                    if (ENABLE_MISSION_WAYPOINT_LABELS) {
+                        debugLabels.push({
+                            longitude: waypoint.longitude,
+                            latitude: waypoint.latitude,
+                            altitudeAboveGround: Math.max(0.0, renderAltitudeAmsl - groundRenderAltitudeAmsl),
+                            text: missionDebugText(waypoint, homeAltitudeAmsl)
+                        });
+                    }
                 }
             }
 
@@ -3411,16 +4034,22 @@
                 gl.enable(gl.DEPTH_TEST);
                 gl.depthMask(true);
                 gl.enableVertexAttribArray(missionLayerState.positionAttribute);
+                const missionColorIntensity = currentMissionColorIntensity();
+                const routeColor = colorWithIntensity(MISSION_ROUTE_COLOR, missionColorIntensity);
+                const altitudeColor = colorWithIntensity(MISSION_ALTITUDE_COLOR, missionColorIntensity);
+                const altitudeFallbackColor = colorWithIntensity(MISSION_ALTITUDE_FALLBACK_COLOR, missionColorIntensity);
+                const waypointHaloColor = colorWithIntensity(MISSION_WAYPOINT_HALO_COLOR, missionColorIntensity);
+                const waypointCoreColor = colorWithIntensity(MISSION_WAYPOINT_CORE_COLOR, missionColorIntensity);
 
                 if (missionLayerState.routeVertexCount >= 3) {
                     gl.bindBuffer(gl.ARRAY_BUFFER, missionLayerState.routeBuffer);
                     gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_ROUTE_COLOR[0],
-                        MISSION_ROUTE_COLOR[1],
-                        MISSION_ROUTE_COLOR[2],
-                        MISSION_ROUTE_COLOR[3]
+                        routeColor[0],
+                        routeColor[1],
+                        routeColor[2],
+                        routeColor[3]
                     );
                     gl.uniform1f(missionLayerState.renderModeUniform, 0.0);
                     gl.uniform1f(missionLayerState.pointSizeUniform, 1.0);
@@ -3432,10 +4061,10 @@
                     gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_ALTITUDE_COLOR[0],
-                        MISSION_ALTITUDE_COLOR[1],
-                        MISSION_ALTITUDE_COLOR[2],
-                        MISSION_ALTITUDE_COLOR[3]
+                        altitudeColor[0],
+                        altitudeColor[1],
+                        altitudeColor[2],
+                        altitudeColor[3]
                     );
                     gl.uniform1f(missionLayerState.renderModeUniform, 0.0);
                     gl.uniform1f(missionLayerState.pointSizeUniform, 1.0);
@@ -3447,10 +4076,10 @@
                     gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_ALTITUDE_FALLBACK_COLOR[0],
-                        MISSION_ALTITUDE_FALLBACK_COLOR[1],
-                        MISSION_ALTITUDE_FALLBACK_COLOR[2],
-                        MISSION_ALTITUDE_FALLBACK_COLOR[3]
+                        altitudeFallbackColor[0],
+                        altitudeFallbackColor[1],
+                        altitudeFallbackColor[2],
+                        altitudeFallbackColor[3]
                     );
                     gl.uniform1f(missionLayerState.renderModeUniform, 0.0);
                     gl.uniform1f(missionLayerState.pointSizeUniform, 1.0);
@@ -3462,10 +4091,10 @@
                     gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_ALTITUDE_COLOR[0],
-                        MISSION_ALTITUDE_COLOR[1],
-                        MISSION_ALTITUDE_COLOR[2],
-                        MISSION_ALTITUDE_COLOR[3]
+                        altitudeColor[0],
+                        altitudeColor[1],
+                        altitudeColor[2],
+                        altitudeColor[3]
                     );
                     gl.uniform1f(missionLayerState.renderModeUniform, 0.0);
                     gl.uniform1f(missionLayerState.pointSizeUniform, 1.0);
@@ -3484,15 +4113,16 @@
 
                         const color = Array.isArray(trailBatch.color) && trailBatch.color.length >= 4
                             ? trailBatch.color
-                            : MISSION_ALTITUDE_COLOR;
+                            : altitudeColor;
+                        const trailColor = colorWithIntensity(color, missionColorIntensity);
                         gl.bindBuffer(gl.ARRAY_BUFFER, trailBuffer);
                         gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                         gl.uniform4f(
                             missionLayerState.colorUniform,
-                            Number(color[0]),
-                            Number(color[1]),
-                            Number(color[2]),
-                            Number(color[3])
+                            Number(trailColor[0]),
+                            Number(trailColor[1]),
+                            Number(trailColor[2]),
+                            Number(trailColor[3])
                         );
                         gl.uniform1f(missionLayerState.renderModeUniform, 0.0);
                         gl.uniform1f(missionLayerState.pointSizeUniform, 1.0);
@@ -3510,20 +4140,20 @@
                     gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_WAYPOINT_HALO_COLOR[0],
-                        MISSION_WAYPOINT_HALO_COLOR[1],
-                        MISSION_WAYPOINT_HALO_COLOR[2],
-                        MISSION_WAYPOINT_HALO_COLOR[3]
+                        waypointHaloColor[0],
+                        waypointHaloColor[1],
+                        waypointHaloColor[2],
+                        waypointHaloColor[3]
                     );
                     gl.uniform1f(missionLayerState.renderModeUniform, 1.0);
                     gl.uniform1f(missionLayerState.pointSizeUniform, waypointHaloSizePx);
                     gl.drawArrays(gl.POINTS, 0, missionLayerState.waypointVertexCount);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_WAYPOINT_CORE_COLOR[0],
-                        MISSION_WAYPOINT_CORE_COLOR[1],
-                        MISSION_WAYPOINT_CORE_COLOR[2],
-                        MISSION_WAYPOINT_CORE_COLOR[3]
+                        waypointCoreColor[0],
+                        waypointCoreColor[1],
+                        waypointCoreColor[2],
+                        waypointCoreColor[3]
                     );
                     gl.uniform1f(missionLayerState.pointSizeUniform, waypointCoreSizePx);
                     gl.drawArrays(gl.POINTS, 0, missionLayerState.waypointVertexCount);
@@ -3591,13 +4221,41 @@
         map.triggerRepaint();
     }
 
+    function clearMissionGeometryAndOverlays() {
+        removeMissionDebugLayer();
+        removeMissionDirectionLayer();
+        pendingMissionData = null;
+
+        if (!map || !mapLoaded || !missionLayerState || !map.getLayer(MISSION_3D_LAYER_ID)) {
+            return;
+        }
+
+        const emptyGeometry = _emptyMissionGeometry();
+        const currentOrigin = {
+            x: Number.isFinite(Number(missionLayerState.originX)) ? Number(missionLayerState.originX) : 0.0,
+            y: Number.isFinite(Number(missionLayerState.originY)) ? Number(missionLayerState.originY) : 0.0,
+            z: Number.isFinite(Number(missionLayerState.originZ)) ? Number(missionLayerState.originZ) : 0.0
+        };
+
+        setMissionLayerGeometry(
+            emptyGeometry.routeVertices,
+            emptyGeometry.verticalVertices,
+            emptyGeometry.verticalFallbackVertices,
+            emptyGeometry.directionVertices,
+            emptyGeometry.waypointVertices,
+            currentOrigin
+        );
+        refreshVehicleTrailsInLayer();
+        map.triggerRepaint();
+    }
+
     function applyMissionsData(missionsData) {
         const normalizedMissions = normalizeMissionsData(missionsData);
         const hasWaypoints = normalizedMissions.some(function (mission) {
             return mission && Array.isArray(mission.waypoints) && mission.waypoints.length > 0;
         });
         if (!hasWaypoints) {
-            removeMission3DLayer();
+            clearMissionGeometryAndOverlays();
             return false;
         }
 
@@ -3629,8 +4287,7 @@
 
     function applyMissionData(missionData) {
         if (!missionData) {
-            removeMission3DLayer();
-            return false;
+            return applyMissionsData([]);
         }
         return applyMissionsData([missionData]);
     }
@@ -3919,7 +4576,7 @@
     window.__qgcClearMissionData = function () {
         window.__qgcMissionsData = [];
         window.__qgcMissionData = null;
-        removeMission3DLayer();
+        applyMissionsData([]);
         return true;
     };
 
@@ -4010,6 +4667,21 @@
                 hash: false,
                 fadeDuration: 120,
                 renderWorldCopies: false
+            });
+
+            map.on("render", function (event) {
+                const renderTimestampMs = event && Number.isFinite(Number(event.timeStamp))
+                    ? Number(event.timeStamp)
+                    : monotonicNowMs();
+                updateFrameTimingSample(renderTimestampMs);
+                if (ENABLE_MISSION_WAYPOINT_LABEL_LOD && !declutterEnabled && missionDebugMarkers.length > 0) {
+                    if (!Number.isFinite(lastMissionLabelLayoutMs) ||
+                            (renderTimestampMs - lastMissionLabelLayoutMs) >= MISSION_LABEL_LAYOUT_INTERVAL_MS) {
+                        applyMissionLabelLodAndOverlap();
+                        setMarkerCollectionVisibility(missionDebugMarkers, true);
+                        lastMissionLabelLayoutMs = renderTimestampMs;
+                    }
+                }
             });
 
             configureInteractionHandlers();

@@ -84,6 +84,7 @@
 
 // UI
 #include "FlyViewMissionCompleteDialogTest.h"
+#include "Viewer3DAltitudeResolverTest.h"
 
 // Utilities
 // Audio
@@ -188,6 +189,7 @@ int runTests(bool stress, QStringView unitTestOptions)
 
     // UI
     UT_REGISTER_TEST(FlyViewMissionCompleteDialogTest)
+    UT_REGISTER_TEST(Viewer3DAltitudeResolverTest)
 
     // Utilities
     // Audio

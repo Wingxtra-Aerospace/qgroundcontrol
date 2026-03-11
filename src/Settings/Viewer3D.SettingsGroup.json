@@ -20,6 +20,24 @@
     "shortDesc":        "Altitude correction bias in meters for streamed 3D overlays.",
     "type":             "double",
     "default":          0
+},
+{
+    "name":             "vehicleIconScale",
+    "shortDesc":        "Scale factor for 3D vehicle icon size.",
+    "type":             "double",
+    "default":          1
+},
+{
+    "name":             "trailThicknessScale",
+    "shortDesc":        "Scale factor for 3D trail and mission line thickness.",
+    "type":             "double",
+    "default":          1
+},
+{
+    "name":             "missionColorIntensity",
+    "shortDesc":        "Intensity factor for 3D mission colors.",
+    "type":             "double",
+    "default":          1
 }
 ]
 }

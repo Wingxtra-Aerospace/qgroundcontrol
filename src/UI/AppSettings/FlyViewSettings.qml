@@ -42,6 +42,9 @@ SettingsPage {
     property Fact   _viewer3DEnabled:                       _viewer3DSettings.enabled
     property Fact   _viewer3DStreamingMapToken:             _viewer3DSettings.streamingProviderToken
     property Fact   _viewer3DVehicleAltitudeBias:           _viewer3DSettings.vehicleAltitudeBias
+    property Fact   _viewer3DVehicleIconScale:              _viewer3DSettings.vehicleIconScale
+    property Fact   _viewer3DTrailThicknessScale:           _viewer3DSettings.trailThicknessScale
+    property Fact   _viewer3DMissionColorIntensity:         _viewer3DSettings.missionColorIntensity
 
     QGCFileDialogController { id: fileController }
 
@@ -277,6 +280,30 @@ SettingsPage {
                 fact:               _viewer3DVehicleAltitudeBias
                 enabled:            _viewer3DEnabled.rawValue
                 visible:            _viewer3DVehicleAltitudeBias.visible
+            }
+
+            LabelledFactTextField {
+                Layout.fillWidth:   true
+                label:              qsTr("Vehicle Icon Scale")
+                fact:               _viewer3DVehicleIconScale
+                enabled:            _viewer3DEnabled.rawValue
+                visible:            _viewer3DVehicleIconScale.visible
+            }
+
+            LabelledFactTextField {
+                Layout.fillWidth:   true
+                label:              qsTr("Trail Thickness Scale")
+                fact:               _viewer3DTrailThicknessScale
+                enabled:            _viewer3DEnabled.rawValue
+                visible:            _viewer3DTrailThicknessScale.visible
+            }
+
+            LabelledFactTextField {
+                Layout.fillWidth:   true
+                label:              qsTr("Mission Color Intensity")
+                fact:               _viewer3DMissionColorIntensity
+                enabled:            _viewer3DEnabled.rawValue
+                visible:            _viewer3DMissionColorIntensity.visible
             }
         }
     }

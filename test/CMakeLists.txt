@@ -108,6 +108,7 @@ add_qgc_test(TerrainTileTest)
 
 add_subdirectory(UI)
 add_qgc_test(FlyViewMissionCompleteDialogTest)
+add_qgc_test(Viewer3DAltitudeResolverTest)
 
 add_subdirectory(Utilities)
 # Audio

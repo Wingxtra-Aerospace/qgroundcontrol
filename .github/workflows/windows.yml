@@ -133,6 +133,8 @@ jobs:
         working-directory: ${{ runner.temp }}\shadow_build_dir\Debug
         run: |
           QGroundControl.exe --unittest:StatusTextHandlerTest
+          QGroundControl.exe --unittest:FlyViewMissionCompleteDialogTest
+          QGroundControl.exe --unittest:Viewer3DAltitudeResolverTest
           QGroundControl.exe --unittest:MissionManagerTest
           QGroundControl.exe --unittest:VehicleLinkManagerTest
 

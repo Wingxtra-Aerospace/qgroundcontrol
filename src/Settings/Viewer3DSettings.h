@@ -24,4 +24,7 @@ public:
     DEFINE_SETTINGFACT(enabled)
     DEFINE_SETTINGFACT(streamingProviderToken)
     DEFINE_SETTINGFACT(vehicleAltitudeBias)
+    DEFINE_SETTINGFACT(vehicleIconScale)
+    DEFINE_SETTINGFACT(trailThicknessScale)
+    DEFINE_SETTINGFACT(missionColorIntensity)
 };

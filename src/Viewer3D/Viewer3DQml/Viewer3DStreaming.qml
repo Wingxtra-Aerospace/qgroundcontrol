@@ -15,6 +15,9 @@ Item {
     property var _viewer3DSettings: QGroundControl.settingsManager.viewer3DSettings
     property var _streamingMapTokenFact: _viewer3DSettings ? _viewer3DSettings.streamingProviderToken : null
     property var _vehicleAltitudeBiasFact: _viewer3DSettings ? _viewer3DSettings.vehicleAltitudeBias : null
+    property var _vehicleIconScaleFact: _viewer3DSettings ? _viewer3DSettings.vehicleIconScale : null
+    property var _trailThicknessScaleFact: _viewer3DSettings ? _viewer3DSettings.trailThicknessScale : null
+    property var _missionColorIntensityFact: _viewer3DSettings ? _viewer3DSettings.missionColorIntensity : null
     property var _missionVisualItems: missionController ? missionController.visualItems : null
     property var _multiVehicleManager: QGroundControl.multiVehicleManager
     property var _vehiclesModel: _multiVehicleManager ? _multiVehicleManager.vehicles : null
@@ -68,7 +71,10 @@ Item {
         }
 
         const config = {
-            token: _stringValue(_streamingMapTokenFact ? _streamingMapTokenFact.rawValue : "")
+            token: _stringValue(_streamingMapTokenFact ? _streamingMapTokenFact.rawValue : ""),
+            vehicleIconScale: _numberValue(_vehicleIconScaleFact ? _vehicleIconScaleFact.rawValue : 1, 1),
+            trailThicknessScale: _numberValue(_trailThicknessScaleFact ? _trailThicknessScaleFact.rawValue : 1, 1),
+            missionColorIntensity: _numberValue(_missionColorIntensityFact ? _missionColorIntensityFact.rawValue : 1, 1)
         };
 
         const script =
@@ -1204,6 +1210,45 @@ Item {
 
     Connections {
         target: root._streamingMapTokenFact
+        ignoreUnknownSignals: true
+
+        function onRawValueChanged() {
+            root._pushStreamingConfigToPage();
+        }
+
+        function onValueChanged() {
+            root._pushStreamingConfigToPage();
+        }
+    }
+
+    Connections {
+        target: root._vehicleIconScaleFact
+        ignoreUnknownSignals: true
+
+        function onRawValueChanged() {
+            root._pushStreamingConfigToPage();
+        }
+
+        function onValueChanged() {
+            root._pushStreamingConfigToPage();
+        }
+    }
+
+    Connections {
+        target: root._trailThicknessScaleFact
+        ignoreUnknownSignals: true
+
+        function onRawValueChanged() {
+            root._pushStreamingConfigToPage();
+        }
+
+        function onValueChanged() {
+            root._pushStreamingConfigToPage();
+        }
+    }
+
+    Connections {
+        target: root._missionColorIntensityFact
         ignoreUnknownSignals: true
 
         function onRawValueChanged() {

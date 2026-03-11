@@ -57,6 +57,9 @@ Item {
     property bool   _showSingleVehicleUI:   true
     property bool   _pendingPreflightPopupOpen: false
     property bool   _showCameraControls:    true
+    property bool   _syncingSharedViewControlState: false
+    property string _sharedViewPanMode:     "free"
+    property bool   _sharedDeclutterEnabled:false
 
     property bool utmspActTrigger
 
@@ -101,9 +104,55 @@ Item {
         }
     }
 
+    function _setSharedViewPanMode(modeKey) {
+        if (!modeKey) {
+            return
+        }
+
+        if (_sharedViewPanMode === modeKey) {
+            return
+        }
+
+        _sharedViewPanMode = modeKey
+    }
+
+    function _setSharedDeclutterEnabled(enabled) {
+        const targetEnabled = (enabled === true)
+        if (_sharedDeclutterEnabled === targetEnabled) {
+            return
+        }
+
+        _sharedDeclutterEnabled = targetEnabled
+    }
+
+    function _syncSharedViewControlStateFromControl(control) {
+        if (!control || _syncingSharedViewControlState) {
+            return
+        }
+
+        if (control.viewPanMode !== undefined && control.viewPanMode !== null && String(control.viewPanMode).length > 0) {
+            _setSharedViewPanMode(String(control.viewPanMode))
+        }
+        if (control.declutterEnabled !== undefined) {
+            _setSharedDeclutterEnabled(control.declutterEnabled === true)
+        }
+    }
+
+    function _applySharedViewControlStateToAllViews() {
+        if (_syncingSharedViewControlState) {
+            return
+        }
+
+        _syncingSharedViewControlState = true
+        _setPanModeOnControl(mapControl, _sharedViewPanMode)
+        _setPanModeOnControl(mapControl3D, _sharedViewPanMode)
+        _setDeclutterOnControl(mapControl, _sharedDeclutterEnabled)
+        _setDeclutterOnControl(mapControl3D, _sharedDeclutterEnabled)
+        _syncingSharedViewControlState = false
+    }
+
     function _applyPanModeToAllViews(modeKey) {
-        _setPanModeOnControl(mapControl, modeKey)
-        _setPanModeOnControl(mapControl3D, modeKey)
+        _setSharedViewPanMode(modeKey)
     }
 
     function _setDeclutterOnControl(control, enabled) {
@@ -124,14 +173,73 @@ Item {
     }
 
     function _toggleDeclutterAcrossViews() {
-        const targetEnabled = !(_activeViewControl && _activeViewControl.declutterEnabled === true)
-        _setDeclutterOnControl(mapControl, targetEnabled)
-        _setDeclutterOnControl(mapControl3D, targetEnabled)
+        _setSharedDeclutterEnabled(!_sharedDeclutterEnabled)
     }
 
     onVisibleChanged: {
         if (!visible) {
             dismissViewControlsPopup()
+        }
+    }
+
+    on_SharedViewPanModeChanged: {
+        _applySharedViewControlStateToAllViews()
+    }
+
+    on_SharedDeclutterEnabledChanged: {
+        _applySharedViewControlStateToAllViews()
+    }
+
+    on_ActiveViewControlChanged: {
+        _syncSharedViewControlStateFromControl(_activeViewControl)
+    }
+
+    onMapControlChanged: {
+        _syncSharedViewControlStateFromControl(mapControl)
+        _applySharedViewControlStateToAllViews()
+    }
+
+    onMapControl3DChanged: {
+        _syncSharedViewControlStateFromControl(mapControl3D)
+        _applySharedViewControlStateToAllViews()
+    }
+
+    Component.onCompleted: {
+        _syncSharedViewControlStateFromControl(_activeViewControl)
+        _applySharedViewControlStateToAllViews()
+    }
+
+    Connections {
+        target: mapControl
+        ignoreUnknownSignals: true
+
+        function onViewPanModeChanged() {
+            if (!_syncingSharedViewControlState) {
+                _setSharedViewPanMode(mapControl.viewPanMode)
+            }
+        }
+
+        function onDeclutterEnabledChanged() {
+            if (!_syncingSharedViewControlState) {
+                _setSharedDeclutterEnabled(mapControl.declutterEnabled === true)
+            }
+        }
+    }
+
+    Connections {
+        target: mapControl3D
+        ignoreUnknownSignals: true
+
+        function onViewPanModeChanged() {
+            if (!_syncingSharedViewControlState) {
+                _setSharedViewPanMode(mapControl3D.viewPanMode)
+            }
+        }
+
+        function onDeclutterEnabledChanged() {
+            if (!_syncingSharedViewControlState) {
+                _setSharedDeclutterEnabled(mapControl3D.declutterEnabled === true)
+            }
         }
     }
 
@@ -297,7 +405,8 @@ Item {
                 border.width:           1
                 border.color:           qgcPal.groupBorder
                 clip:                   true
-                enabled:                _activeViewControl && (typeof _activeViewControl.setViewPanMode === "function")
+                enabled:                (mapControl && (typeof mapControl.setViewPanMode === "function")) ||
+                                        (mapControl3D && (typeof mapControl3D.setViewPanMode === "function"))
                 opacity:                enabled ? 1 : 0.6
 
                 property var modeOptions: [
@@ -314,7 +423,7 @@ Item {
                         width:      panModeSelector.width / panModeRepeater.count
                         height:     panModeSelector.height
                         x:          index * width
-                        color:      (_activeViewControl && _activeViewControl.viewPanMode === modelData.modeKey) ? qgcPal.buttonHighlight : qgcPal.button
+                        color:      (_sharedViewPanMode === modelData.modeKey) ? qgcPal.buttonHighlight : qgcPal.button
                         border.width: index < (panModeRepeater.count - 1) ? 1 : 0
                         border.color: qgcPal.groupBorder
 
@@ -325,7 +434,7 @@ Item {
                             sourceSize.height:  height
                             source:             modelData.iconSource
                             fillMode:           Image.PreserveAspectFit
-                            color:              (_activeViewControl && _activeViewControl.viewPanMode === modelData.modeKey) ? qgcPal.buttonHighlightText : qgcPal.buttonText
+                            color:              (_sharedViewPanMode === modelData.modeKey) ? qgcPal.buttonHighlightText : qgcPal.buttonText
                         }
 
                         MouseArea {
@@ -347,8 +456,9 @@ Item {
 
             QGCButton {
                 Layout.fillWidth:   true
-                text:               (_activeViewControl && _activeViewControl.declutterEnabled) ? qsTr("Declutter On") : qsTr("Declutter Off")
-                enabled:            _activeViewControl && (typeof _activeViewControl.toggleDeclutter === "function")
+                text:               _sharedDeclutterEnabled ? qsTr("Declutter On") : qsTr("Declutter Off")
+                enabled:            (mapControl && ((typeof mapControl.toggleDeclutter === "function") || (typeof mapControl.setDeclutterEnabled === "function"))) ||
+                                    (mapControl3D && ((typeof mapControl3D.toggleDeclutter === "function") || (typeof mapControl3D.setDeclutterEnabled === "function")))
                 onClicked: {
                     _toggleDeclutterAcrossViews()
                     dismissViewControlsPopup()

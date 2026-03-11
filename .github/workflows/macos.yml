@@ -105,6 +105,8 @@ jobs:
         working-directory: ${{ runner.temp }}/shadow_build_dir/Debug/QGroundControl.app/Contents/MacOS
         run: |
           ./QGroundControl --unittest:StatusTextHandlerTest
+          ./QGroundControl --unittest:FlyViewMissionCompleteDialogTest
+          ./QGroundControl --unittest:Viewer3DAltitudeResolverTest
           ./QGroundControl --unittest:MissionManagerTest
           ./QGroundControl --unittest:VehicleLinkManagerTest
 

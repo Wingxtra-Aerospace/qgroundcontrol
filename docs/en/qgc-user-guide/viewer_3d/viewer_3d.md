@@ -45,4 +45,23 @@ The following properties can be modified in the 3D View settings group:
 - **Enabled**: To enable or disable the 3D View.
 - **Mapbox Access Token**: Token used by the streamed 3D provider to load terrain and imagery.
 - **Vehicle Altitude Bias**: Altitude correction bias (in meters) applied to vehicle and mission 3D overlays when the flight controller altitude estimate is offset from rendered terrain.
+- **Vehicle Icon Scale**: Scales 3D vehicle icon size.
+- **Trail Thickness Scale**: Scales mission line and vehicle trail thickness.
+- **Mission Color Intensity**: Adjusts mission/trail color intensity for readability against terrain imagery.
 
+## Multi-Vehicle Health Chips
+In Fly View multi-vehicle cards, each vehicle shows compact health chips:
+- **GPS**: Uses GPS lock/satellite readiness.
+- **ALT**: Indicates whether altitude telemetry is currently valid.
+- **LOSS**: Uses MAVLink packet loss percentage as link-quality signal.
+
+Color meaning:
+- **Green**: Healthy
+- **Orange**: Degraded
+- **Red**: Poor/failing
+- **Gray**: Data unavailable
+
+## Multi-Vehicle Focus Shortcuts
+- **Double-click a vehicle card** in the multi-vehicle panel to focus that vehicle.
+- **`Ctrl+]`** focuses the next selected vehicle.
+- **`Ctrl+[`** focuses the previous selected vehicle.
