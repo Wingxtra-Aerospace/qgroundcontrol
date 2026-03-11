@@ -116,6 +116,19 @@ MapQuickItem {
             blurMax: 32
             blurMultiplier: .1
         }
+
+        MultiEffect {
+            source:                  vehicleIcon
+            shadowEnabled:           vehicleIcon.visible && !_adsbVehicle
+            shadowColor:             Qt.rgba(0, 0, 0, 0.62)
+            shadowVerticalOffset:    2
+            shadowHorizontalOffset:  1
+            shadowBlur:              0.72
+            shadowOpacity:           0.72
+            shadowScale:             1.08
+            blurMax:                 24
+            blurMultiplier:          0.08
+        }
             
         Repeater {
             model: vehicle ? vehicle.gimbalController.gimbals : [] 
@@ -208,7 +221,7 @@ MapQuickItem {
                 sourceSize.width:   _root.size
                 fillMode:           Image.PreserveAspectFit
                 color:              _root._vehicleIconEdgeColor
-                scale:              1.06
+                scale:              1.08
                 opacity:            0.96
             }
 
@@ -222,7 +235,7 @@ MapQuickItem {
                 sourceSize.width:   _root.size
                 fillMode:           Image.PreserveAspectFit
                 color:              _root._vehicleIconColor
-                scale:              0.95
+                scale:              0.94
             }
         }
 

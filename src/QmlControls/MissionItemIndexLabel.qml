@@ -26,6 +26,10 @@ Canvas {
     property real   vehicleYaw
     property bool   showGimbalYaw:          false
     property bool   showSequenceNumbers:    true
+    property color  _indicatorBorderColor:  checked ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.52)
+    property color  _labelBackgroundColor:  Qt.rgba(0.07, 0.11, 0.18, 0.78)
+    property color  _labelBorderColor:      Qt.rgba(1, 1, 1, 0.26)
+    property color  _labelTextColor:        Qt.rgba(0.95, 0.98, 1.0, 0.98)
 
     property real   _width:             showGimbalYaw ? Math.max(_gimbalYawWidth, labelControl.visible ? labelControl.width : indicator.width) : (labelControl.visible ? labelControl.width : indicator.width)
     property real   _height:            showGimbalYaw ? _gimbalYawWidth : (labelControl.visible ? labelControl.height : indicator.height)
@@ -80,8 +84,10 @@ Canvas {
         anchors.leftMargin:     -((_labelMargin * 2) + indicator.width)
         anchors.rightMargin:    -(_labelMargin * 2)
         anchors.fill:           labelControlLabel
-        color:                  "white"
-        opacity:                0.5
+        color:                  _labelBackgroundColor
+        border.color:           _labelBorderColor
+        border.width:           1
+        opacity:                1.0
         radius:                 _labelRadius
         visible:                _label.length !== 0 && !small
     }
@@ -94,7 +100,8 @@ Canvas {
         anchors.left:           indicator.right
         anchors.top:            indicator.top
         anchors.bottom:         indicator.bottom
-        color:                  "black"
+        color:                  _labelTextColor
+        font.bold:              true
         text:                   _label
         verticalAlignment:      Text.AlignVCenter
         visible:                labelControl.visible
@@ -108,14 +115,29 @@ Canvas {
         anchors.verticalCenterOffset:   anchorPointY
         width:                          _indicatorRadius * 2
         height:                         width
-        color:                          root.color
+        color:                          "transparent"
+        border.color:                   _indicatorBorderColor
+        border.width:                   1
         radius:                         _indicatorRadius
+
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Qt.lighter(root.color, root.checked ? 1.18 : 1.08) }
+            GradientStop { position: 1.0; color: Qt.darker(root.color, root.checked ? 1.08 : 1.22) }
+        }
+
+        Rectangle {
+            anchors.fill:           parent
+            anchors.margins:        Math.max(1, Math.round(parent.width * 0.14))
+            radius:                 width * 0.5
+            color:                  root.checked ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.12)
+        }
 
         QGCLabel {
             anchors.fill:           parent
             horizontalAlignment:    Text.AlignHCenter
             verticalAlignment:      Text.AlignVCenter
-            color:                  "white"
+            color:                  Qt.rgba(0.99, 1.0, 1.0, 0.98)
+            font.bold:              true
             font.pointSize:         ScreenTools.defaultFontPointSize
             fontSizeMode:           Text.Fit
             text:                   _index
@@ -128,7 +150,18 @@ Canvas {
         height:         width
         radius:         width * 0.5
         color:          Qt.rgba(0,0,0,0)
-        border.color:   Qt.rgba(1,1,1,0.5)
+        border.color:   Qt.rgba(1,1,1,0.78)
+        border.width:   1.2
+        visible:        checked && highlightSelected
+        anchors.centerIn: indicator
+    }
+
+    Rectangle {
+        width:          indicator.width * 2.45
+        height:         width
+        radius:         width * 0.5
+        color:          Qt.rgba(0, 0, 0, 0)
+        border.color:   Qt.rgba(0.64, 0.84, 1.0, 0.36)
         border.width:   1
         visible:        checked && highlightSelected
         anchors.centerIn: indicator

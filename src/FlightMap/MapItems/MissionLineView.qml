@@ -18,16 +18,17 @@ import QGroundControl.Palette
 MapItemView {
     property bool showSpecialVisual: false
     delegate: MapPolyline {
-        line.width: 3
+        line.width: 3.8
         // Note: Special visuals for ROI are hacked out for now since they are not working correctly
         line.color: _terrainCollision ?
-                        "red" :
-                        (false/*showSpecialVisual*/ ? "green" : QGroundControl.globalPalette.mapMissionTrajectory)
+                        Qt.rgba(0.93, 0.23, 0.23, 0.94) :
+                        (false/*showSpecialVisual*/ ? Qt.rgba(0.20, 0.88, 0.56, 0.92) : Qt.rgba(_missionBaseColor.r, _missionBaseColor.g, _missionBaseColor.b, 0.95))
         z:          QGroundControl.zOrderWaypointLines
         path:       _calcMissionLinePath()
 
         property bool _terrainCollision:    object && object.terrainCollision
         property bool _showSpecialVisual:   object && showSpecialVisual && object.specialVisual
+        property color _missionBaseColor:   QGroundControl.globalPalette.mapMissionTrajectory
 
         readonly property real _maxSegmentLengthM: 50000 // 50 km
 

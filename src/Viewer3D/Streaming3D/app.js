@@ -68,6 +68,7 @@
     let hasReceivedExternalConfig = false;
     let hasReceivedExternalMapView = false;
     let vehicleMarkers = new Map();
+    let vehicleNumberMarkers = new Map();
     let mission3DLayer = null;
     let missionLayerNeedsUpload = false;
     let missionLayerState = null;
@@ -119,14 +120,21 @@
     const DEFAULT_VEHICLE_ICON_SOURCE = "/qmlimages/vehicleArrowOpaque.svg";
     const DEFAULT_VEHICLE_ICON_COLOR = "#FFFFFF";
     const VEHICLE_MARKER_SIZE_PX = 56;
+    const VEHICLE_NUMBER_VERTICAL_OFFSET_PX = 28;
     const VEHICLE_ALTITUDE_MISMATCH_TOLERANCE_METERS = 20.0;
     const MISSION_3D_LAYER_ID = "qgc-mission-3d";
-    // Matches QGroundControl.globalPalette.mapMissionTrajectory (#be781c).
-    const MISSION_ROUTE_COLOR = [0.7451, 0.4706, 0.1098, 0.96];
-    const MISSION_ALTITUDE_COLOR = [1.0, 1.0, 1.0, 0.96];
-    const MISSION_ALTITUDE_FALLBACK_COLOR = [1.0, 1.0, 1.0, 0.62];
+    // Route and marker palette tuned for higher legibility and cleaner depth cues.
+    const MISSION_ROUTE_COLOR = [0.9569, 0.6784, 0.2431, 0.97];
+    const MISSION_ALTITUDE_COLOR = [0.9373, 0.9608, 1.0, 0.95];
+    const MISSION_ALTITUDE_FALLBACK_COLOR = [0.6902, 0.7686, 0.8980, 0.58];
+    const MISSION_WAYPOINT_HALO_COLOR = [0.0431, 0.0784, 0.1294, 0.82];
+    const MISSION_WAYPOINT_CORE_COLOR = [0.9804, 0.9961, 1.0, 0.98];
     const MISSION_TUBE_RADIAL_SEGMENTS = 12;
-    const MISSION_POINT_SIZE_PX = 11.0;
+    const MISSION_POINT_SIZE_PX = 11.8;
+    const MISSION_POINT_HALO_SIZE_PX = 16.6;
+    const MISSION_POINT_SIZE_MIN_PX = 8.2;
+    const MISSION_POINT_SIZE_MAX_PX = 18.4;
+    const MISSION_POINT_HALO_SCALE = 1.42;
     // Keep cylindrical mission lines at fixed world size (not zoom-dependent).
     const MISSION_LINE_DIAMETER_METERS = 1.224;
     const MISSION_LABEL_OFFSET_X_PX = 10;
@@ -258,6 +266,31 @@
         out[14] = (matrix[2] * tx) + (matrix[6] * ty) + (matrix[10] * tz) + matrix[14];
         out[15] = (matrix[3] * tx) + (matrix[7] * ty) + (matrix[11] * tz) + matrix[15];
         return out;
+    }
+
+    function resolveWaypointPointSizePx() {
+        if (!map || !mapLoaded) {
+            return MISSION_POINT_SIZE_PX;
+        }
+
+        const zoom = clampZoomLevel(
+            typeof map.getZoom === "function" ? Number(map.getZoom()) : Number.NaN
+        );
+        const normalizedZoom = clampValue((zoom - 11.5) / 7.0, 0.0, 1.0);
+        // Smooth cubic easing so growth looks natural while zooming.
+        const easedZoom = normalizedZoom * normalizedZoom * (3.0 - (2.0 * normalizedZoom));
+
+        const pitch = clampValue(
+            typeof map.getPitch === "function" ? Number(map.getPitch()) : DEFAULT_PITCH_DEGREES,
+            0.0,
+            85.0
+        );
+        const pitchBoost = 1.0 + (pitch / 85.0) * 0.12;
+
+        return (
+            MISSION_POINT_SIZE_MIN_PX +
+            ((MISSION_POINT_SIZE_MAX_PX - MISSION_POINT_SIZE_MIN_PX) * easedZoom)
+        ) * pitchBoost;
     }
 
     function bearingDegrees(fromLatitude, fromLongitude, toLatitude, toLongitude) {
@@ -1646,8 +1679,41 @@
         markerElement.style.backgroundRepeat = "no-repeat";
         markerElement.style.backgroundPosition = "center";
         markerElement.style.backgroundSize = "contain";
+        markerElement.style.filter =
+            "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.52)) " +
+            "drop-shadow(0 0 2px rgba(255, 255, 255, 0.22))";
 
         return markerElement;
+    }
+
+    function vehicleNumberTextFromId(vehicleId) {
+        const idText = String(vehicleId === undefined || vehicleId === null ? "" : vehicleId);
+        const directNumber = Number(idText);
+        if (Number.isFinite(directNumber)) {
+            return String(Math.trunc(directNumber));
+        }
+
+        const firstNumberMatch = idText.match(/(\d+)/);
+        return firstNumberMatch ? firstNumberMatch[1] : "";
+    }
+
+    function createVehicleNumberElement(vehicleId) {
+        const numberElement = document.createElement("div");
+        numberElement.className = "qgc-vehicle-number-badge";
+        numberElement.dataset.vehicleId = String(vehicleId || "active");
+        numberElement.style.pointerEvents = "none";
+        numberElement.style.userSelect = "none";
+        numberElement.textContent = vehicleNumberTextFromId(vehicleId);
+        return numberElement;
+    }
+
+    function updateVehicleNumberElement(numberElement, vehicleId) {
+        if (!numberElement) {
+            return;
+        }
+        const numberText = vehicleNumberTextFromId(vehicleId);
+        numberElement.textContent = numberText;
+        numberElement.style.display = numberText.length > 0 ? "flex" : "none";
     }
 
     function updateVehicleMarkerIcon(markerElement, iconSource, iconColor) {
@@ -1694,10 +1760,12 @@
     function removeVehicleMarkerById(vehicleId) {
         const marker = vehicleMarkers.get(vehicleId);
         if (!marker) {
+            removeVehicleNumberMarkerById(vehicleId);
             return;
         }
         marker.remove();
         vehicleMarkers.delete(vehicleId);
+        removeVehicleNumberMarkerById(vehicleId);
     }
 
     function removeAllVehicleMarkers() {
@@ -1705,6 +1773,23 @@
             marker.remove();
         }
         vehicleMarkers.clear();
+        removeAllVehicleNumberMarkers();
+    }
+
+    function removeVehicleNumberMarkerById(vehicleId) {
+        const marker = vehicleNumberMarkers.get(vehicleId);
+        if (!marker) {
+            return;
+        }
+        marker.remove();
+        vehicleNumberMarkers.delete(vehicleId);
+    }
+
+    function removeAllVehicleNumberMarkers() {
+        for (const marker of vehicleNumberMarkers.values()) {
+            marker.remove();
+        }
+        vehicleNumberMarkers.clear();
     }
 
     function vehicleTrailColorForId(vehicleId) {
@@ -1855,6 +1940,28 @@
         return marker;
     }
 
+    function ensureVehicleNumberMarker(vehicleId) {
+        if (!map || !mapLoaded || !window.mapboxgl) {
+            return null;
+        }
+
+        const existingMarker = vehicleNumberMarkers.get(vehicleId);
+        if (existingMarker) {
+            return existingMarker;
+        }
+
+        const element = createVehicleNumberElement(vehicleId);
+        const marker = new mapboxgl.Marker({
+            element: element,
+            anchor: "center",
+            offset: [0, -VEHICLE_NUMBER_VERTICAL_OFFSET_PX],
+            pitchAlignment: "viewport",
+            rotationAlignment: "viewport"
+        });
+        vehicleNumberMarkers.set(vehicleId, marker);
+        return marker;
+    }
+
     function applySingleVehicleState(normalizedVehicleState) {
         if (!normalizedVehicleState) {
             return false;
@@ -1862,6 +1969,7 @@
 
         const vehicleId = normalizedVehicleState.id || "active";
         const marker = ensureVehicleMarker(vehicleId);
+        const numberMarker = ensureVehicleNumberMarker(vehicleId);
         if (!marker) {
             return false;
         }
@@ -1880,6 +1988,20 @@
         }
         if (!marker._map) {
             marker.addTo(map);
+        }
+
+        if (numberMarker) {
+            updateVehicleNumberElement(
+                numberMarker.getElement ? numberMarker.getElement() : null,
+                vehicleId
+            );
+            numberMarker.setLngLat([normalizedVehicleState.longitude, normalizedVehicleState.latitude]);
+            if (typeof numberMarker.setAltitude === "function") {
+                numberMarker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedVehicleState));
+            }
+            if (!numberMarker._map) {
+                numberMarker.addTo(map);
+            }
         }
 
         return true;
@@ -2077,11 +2199,18 @@
             "        }",
             "        float nz = sqrt(max(0.0, 1.0 - radial));",
             "        vec3 normal = normalize(vec3(uv.x, uv.y, nz));",
-            "        vec3 lightDirection = normalize(vec3(-0.45, -0.65, 0.75));",
-            "        float diffuse = 0.32 + (0.68 * max(dot(normal, lightDirection), 0.0));",
-            "        float rim = 0.2 * pow(1.0 - nz, 2.0);",
-            "        vec3 shaded = (u_color.rgb * diffuse) + vec3(rim);",
-            "        gl_FragColor = vec4(shaded, u_color.a);",
+            "        vec3 lightDirection = normalize(vec3(-0.36, -0.56, 0.74));",
+            "        vec3 viewDirection = vec3(0.0, 0.0, 1.0);",
+            "        float diffuse = 0.24 + (0.76 * max(dot(normal, lightDirection), 0.0));",
+            "        vec3 reflected = reflect(-lightDirection, normal);",
+            "        float specular = pow(max(dot(reflected, viewDirection), 0.0), 18.0);",
+            "        float fresnel = pow(1.0 - max(nz, 0.0), 2.15);",
+            "        vec3 baseColor = u_color.rgb * diffuse;",
+            "        vec3 glow = vec3(0.15, 0.21, 0.28) * fresnel;",
+            "        vec3 highlight = vec3(1.0) * (0.26 * specular);",
+            "        vec3 shaded = baseColor + glow + highlight;",
+            "        float edgeAlpha = 1.0 - smoothstep(0.82, 1.0, radial);",
+            "        gl_FragColor = vec4(shaded, u_color.a * edgeAlpha);",
             "    } else {",
             "        gl_FragColor = u_color;",
             "    }",
@@ -3177,17 +3306,31 @@
                 }
 
                 if (missionLayerState.waypointVertexCount >= 1) {
+                    const waypointCoreSizePx = resolveWaypointPointSizePx();
+                    const waypointHaloSizePx = Math.max(
+                        waypointCoreSizePx + 1.0,
+                        waypointCoreSizePx * MISSION_POINT_HALO_SCALE
+                    );
                     gl.bindBuffer(gl.ARRAY_BUFFER, missionLayerState.waypointBuffer);
                     gl.vertexAttribPointer(missionLayerState.positionAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.uniform4f(
                         missionLayerState.colorUniform,
-                        MISSION_ALTITUDE_COLOR[0],
-                        MISSION_ALTITUDE_COLOR[1],
-                        MISSION_ALTITUDE_COLOR[2],
-                        MISSION_ALTITUDE_COLOR[3]
+                        MISSION_WAYPOINT_HALO_COLOR[0],
+                        MISSION_WAYPOINT_HALO_COLOR[1],
+                        MISSION_WAYPOINT_HALO_COLOR[2],
+                        MISSION_WAYPOINT_HALO_COLOR[3]
                     );
                     gl.uniform1f(missionLayerState.renderModeUniform, 1.0);
-                    gl.uniform1f(missionLayerState.pointSizeUniform, MISSION_POINT_SIZE_PX);
+                    gl.uniform1f(missionLayerState.pointSizeUniform, waypointHaloSizePx);
+                    gl.drawArrays(gl.POINTS, 0, missionLayerState.waypointVertexCount);
+                    gl.uniform4f(
+                        missionLayerState.colorUniform,
+                        MISSION_WAYPOINT_CORE_COLOR[0],
+                        MISSION_WAYPOINT_CORE_COLOR[1],
+                        MISSION_WAYPOINT_CORE_COLOR[2],
+                        MISSION_WAYPOINT_CORE_COLOR[3]
+                    );
+                    gl.uniform1f(missionLayerState.pointSizeUniform, waypointCoreSizePx);
                     gl.drawArrays(gl.POINTS, 0, missionLayerState.waypointVertexCount);
                 }
 
