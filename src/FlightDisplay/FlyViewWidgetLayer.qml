@@ -357,6 +357,22 @@ Item {
 
             QGCButton {
                 Layout.fillWidth:   true
+                visible:            isViewer3DOpen &&
+                                    mapControl3D &&
+                                    (typeof mapControl3D.toggleVehicleTelemetryOverlay === "function")
+                text:               (mapControl3D && mapControl3D.vehicleTelemetryOverlayEnabled)
+                                    ? qsTr("Telemetry Overlay On")
+                                    : qsTr("Telemetry Overlay Off")
+                onClicked: {
+                    if (mapControl3D && (typeof mapControl3D.toggleVehicleTelemetryOverlay === "function")) {
+                        mapControl3D.toggleVehicleTelemetryOverlay()
+                    }
+                    dismissViewControlsPopup()
+                }
+            }
+
+            QGCButton {
+                Layout.fillWidth:   true
                 text:               _showCameraControls ? qsTr("Camera Controls On") : qsTr("Camera Controls Off")
                 onClicked: {
                     _showCameraControls = !_showCameraControls

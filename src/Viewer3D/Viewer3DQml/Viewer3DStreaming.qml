@@ -28,6 +28,7 @@ Item {
     property bool followVehicleEnabled: false
     property bool autoPanEnabled: false
     property bool declutterEnabled: false
+    property bool vehicleTelemetryOverlayEnabled: false
     property var _vehicleIconColorPalette: [
         "#F96442", // warm red-orange
         "#3CC1FE", // sky blue
@@ -860,10 +861,24 @@ Item {
         webView.runJavaScript(script);
     }
 
+    function _pushVehicleTelemetryOverlayStateToPage() {
+        if (!webView || webView.loading) {
+            return;
+        }
+
+        const overlayEnabled = vehicleTelemetryOverlayEnabled === true;
+        const script =
+            "if (typeof window.__qgcSetVehicleTelemetryOverlayEnabled === 'function') {" +
+            "window.__qgcSetVehicleTelemetryOverlayEnabled(" + (overlayEnabled ? "true" : "false") + ");" +
+            "}";
+        webView.runJavaScript(script);
+    }
+
     function _pushViewControlStateToPage() {
         _pushFollowStateToPage();
         _pushAutoPanStateToPage();
         _pushDeclutterStateToPage();
+        _pushVehicleTelemetryOverlayStateToPage();
     }
 
     function _scheduleMissionSync() {
@@ -999,6 +1014,11 @@ Item {
         return true;
     }
 
+    function setVehicleTelemetryOverlayEnabled(enabled) {
+        vehicleTelemetryOverlayEnabled = (enabled === true);
+        return true;
+    }
+
     function centerOnActiveVehicle() {
         _centerMapOnActiveVehicle();
         return true;
@@ -1119,6 +1139,10 @@ Item {
 
     onDeclutterEnabledChanged: {
         _pushDeclutterStateToPage();
+    }
+
+    onVehicleTelemetryOverlayEnabledChanged: {
+        _pushVehicleTelemetryOverlayStateToPage();
     }
 
     Timer {

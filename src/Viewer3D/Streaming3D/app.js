@@ -58,6 +58,7 @@
     let autoPanTrackingSuppressUntilMs = 0;
     let interactionTrackingSuppressUntilMs = 0;
     let declutterEnabled = false;
+    let vehicleTelemetryOverlayEnabled = false;
     let defaultMapViewState = {
         latitude: 0.0,
         longitude: 0.0,
@@ -69,6 +70,7 @@
     let hasReceivedExternalMapView = false;
     let vehicleMarkers = new Map();
     let vehicleNumberMarkers = new Map();
+    let vehicleTelemetryMarkers = new Map();
     let mission3DLayer = null;
     let missionLayerNeedsUpload = false;
     let missionLayerState = null;
@@ -121,6 +123,7 @@
     const DEFAULT_VEHICLE_ICON_COLOR = "#FFFFFF";
     const VEHICLE_MARKER_SIZE_PX = 56;
     const VEHICLE_NUMBER_VERTICAL_OFFSET_PX = 28;
+    const VEHICLE_TELEMETRY_VERTICAL_OFFSET_PX = 52;
     const VEHICLE_ALTITUDE_MISMATCH_TOLERANCE_METERS = 20.0;
     const MISSION_3D_LAYER_ID = "qgc-mission-3d";
     // Route and marker palette tuned for higher legibility and cleaner depth cues.
@@ -1716,6 +1719,78 @@
         numberElement.style.display = numberText.length > 0 ? "flex" : "none";
     }
 
+    function formatTelemetryMeters(value, decimals) {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+            return "--";
+        }
+        const fixedDigits = Number.isFinite(Number(decimals)) ? Math.max(0, Math.trunc(Number(decimals))) : 1;
+        return numericValue.toFixed(fixedDigits) + " m";
+    }
+
+    function resolveVehicleRelativeAltitudeMeters(normalizedVehicleState) {
+        if (!normalizedVehicleState) {
+            return Number.NaN;
+        }
+
+        if (Number.isFinite(normalizedVehicleState.altitudeRelative)) {
+            return normalizedVehicleState.altitudeRelative;
+        }
+
+        if (Number.isFinite(normalizedVehicleState.altitudeAmsl) &&
+                Number.isFinite(normalizedVehicleState.homeAltitudeAmsl)) {
+            return normalizedVehicleState.altitudeAmsl - normalizedVehicleState.homeAltitudeAmsl;
+        }
+
+        return Number.NaN;
+    }
+
+    function vehicleTelemetryTextFromState(normalizedVehicleState) {
+        if (!normalizedVehicleState) {
+            return "";
+        }
+
+        const numberText = vehicleNumberTextFromId(normalizedVehicleState.id);
+        const idPrefix = numberText.length > 0 ? ("#" + numberText + " ") : "";
+        const altitudeRelative = resolveVehicleRelativeAltitudeMeters(normalizedVehicleState);
+        const altitudeAgl = resolveVehicleAltitudeAboveGround(normalizedVehicleState);
+        const altitudeAmsl = Number.isFinite(normalizedVehicleState.altitudeAmsl)
+            ? normalizedVehicleState.altitudeAmsl
+            : (
+                Number.isFinite(normalizedVehicleState.homeAltitudeAmsl) &&
+                Number.isFinite(normalizedVehicleState.altitudeRelative)
+            )
+                ? (normalizedVehicleState.homeAltitudeAmsl + normalizedVehicleState.altitudeRelative)
+                : Number.NaN;
+
+        return idPrefix +
+            "REL " + formatTelemetryMeters(altitudeRelative, 1) +
+            " | " +
+            "AGL " + formatTelemetryMeters(altitudeAgl, 1) +
+            " | AMSL " + formatTelemetryMeters(altitudeAmsl, 1);
+    }
+
+    function createVehicleTelemetryElement(vehicleId) {
+        const telemetryElement = document.createElement("div");
+        telemetryElement.className = "qgc-vehicle-telemetry-label";
+        telemetryElement.dataset.vehicleId = String(vehicleId || "active");
+        telemetryElement.style.pointerEvents = "none";
+        telemetryElement.style.userSelect = "none";
+        return telemetryElement;
+    }
+
+    function updateVehicleTelemetryElement(telemetryElement, normalizedVehicleState) {
+        if (!telemetryElement) {
+            return;
+        }
+
+        const telemetryText = vehicleTelemetryTextFromState(normalizedVehicleState);
+        telemetryElement.textContent = telemetryText;
+        telemetryElement.style.display = (vehicleTelemetryOverlayEnabled === true && telemetryText.length > 0)
+            ? "flex"
+            : "none";
+    }
+
     function updateVehicleMarkerIcon(markerElement, iconSource, iconColor) {
         if (!markerElement) {
             return;
@@ -1761,11 +1836,13 @@
         const marker = vehicleMarkers.get(vehicleId);
         if (!marker) {
             removeVehicleNumberMarkerById(vehicleId);
+            removeVehicleTelemetryMarkerById(vehicleId);
             return;
         }
         marker.remove();
         vehicleMarkers.delete(vehicleId);
         removeVehicleNumberMarkerById(vehicleId);
+        removeVehicleTelemetryMarkerById(vehicleId);
     }
 
     function removeAllVehicleMarkers() {
@@ -1774,6 +1851,7 @@
         }
         vehicleMarkers.clear();
         removeAllVehicleNumberMarkers();
+        removeAllVehicleTelemetryMarkers();
     }
 
     function removeVehicleNumberMarkerById(vehicleId) {
@@ -1790,6 +1868,22 @@
             marker.remove();
         }
         vehicleNumberMarkers.clear();
+    }
+
+    function removeVehicleTelemetryMarkerById(vehicleId) {
+        const marker = vehicleTelemetryMarkers.get(vehicleId);
+        if (!marker) {
+            return;
+        }
+        marker.remove();
+        vehicleTelemetryMarkers.delete(vehicleId);
+    }
+
+    function removeAllVehicleTelemetryMarkers() {
+        for (const marker of vehicleTelemetryMarkers.values()) {
+            marker.remove();
+        }
+        vehicleTelemetryMarkers.clear();
     }
 
     function vehicleTrailColorForId(vehicleId) {
@@ -1962,6 +2056,28 @@
         return marker;
     }
 
+    function ensureVehicleTelemetryMarker(vehicleId) {
+        if (!map || !mapLoaded || !window.mapboxgl) {
+            return null;
+        }
+
+        const existingMarker = vehicleTelemetryMarkers.get(vehicleId);
+        if (existingMarker) {
+            return existingMarker;
+        }
+
+        const element = createVehicleTelemetryElement(vehicleId);
+        const marker = new mapboxgl.Marker({
+            element: element,
+            anchor: "center",
+            offset: [0, -VEHICLE_TELEMETRY_VERTICAL_OFFSET_PX],
+            pitchAlignment: "viewport",
+            rotationAlignment: "viewport"
+        });
+        vehicleTelemetryMarkers.set(vehicleId, marker);
+        return marker;
+    }
+
     function applySingleVehicleState(normalizedVehicleState) {
         if (!normalizedVehicleState) {
             return false;
@@ -1970,6 +2086,9 @@
         const vehicleId = normalizedVehicleState.id || "active";
         const marker = ensureVehicleMarker(vehicleId);
         const numberMarker = ensureVehicleNumberMarker(vehicleId);
+        const telemetryMarker = vehicleTelemetryOverlayEnabled === true
+            ? ensureVehicleTelemetryMarker(vehicleId)
+            : null;
         if (!marker) {
             return false;
         }
@@ -2004,7 +2123,59 @@
             }
         }
 
+        if (telemetryMarker) {
+            updateVehicleTelemetryElement(
+                telemetryMarker.getElement ? telemetryMarker.getElement() : null,
+                normalizedVehicleState
+            );
+            telemetryMarker.setLngLat([normalizedVehicleState.longitude, normalizedVehicleState.latitude]);
+            if (typeof telemetryMarker.setAltitude === "function") {
+                telemetryMarker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedVehicleState));
+            }
+            if (!telemetryMarker._map) {
+                telemetryMarker.addTo(map);
+            }
+        } else {
+            removeVehicleTelemetryMarkerById(vehicleId);
+        }
+
         return true;
+    }
+
+    function refreshVehicleTelemetryOverlay(vehicleStates) {
+        if (vehicleTelemetryOverlayEnabled !== true) {
+            removeAllVehicleTelemetryMarkers();
+            return;
+        }
+
+        const normalizedStates = normalizeVehiclesState(vehicleStates);
+        const activeIds = new Set();
+        for (const normalizedState of normalizedStates) {
+            const vehicleId = normalizedState.id || "active";
+            activeIds.add(vehicleId);
+            const telemetryMarker = ensureVehicleTelemetryMarker(vehicleId);
+            if (!telemetryMarker) {
+                continue;
+            }
+
+            updateVehicleTelemetryElement(
+                telemetryMarker.getElement ? telemetryMarker.getElement() : null,
+                normalizedState
+            );
+            telemetryMarker.setLngLat([normalizedState.longitude, normalizedState.latitude]);
+            if (typeof telemetryMarker.setAltitude === "function") {
+                telemetryMarker.setAltitude(resolveVehicleAltitudeAboveGround(normalizedState));
+            }
+            if (!telemetryMarker._map) {
+                telemetryMarker.addTo(map);
+            }
+        }
+
+        for (const markerId of Array.from(vehicleTelemetryMarkers.keys())) {
+            if (!activeIds.has(markerId)) {
+                removeVehicleTelemetryMarkerById(markerId);
+            }
+        }
     }
 
     function applyVehiclesState(vehicleStates) {
@@ -2027,6 +2198,12 @@
         for (const markerId of Array.from(vehicleMarkers.keys())) {
             if (!activeIds.has(markerId)) {
                 removeVehicleMarkerById(markerId);
+            }
+        }
+
+        for (const markerId of Array.from(vehicleTelemetryMarkers.keys())) {
+            if (!activeIds.has(markerId)) {
+                removeVehicleTelemetryMarkerById(markerId);
             }
         }
 
@@ -2143,6 +2320,24 @@
     function setDeclutterEnabled(enabled) {
         declutterEnabled = (enabled === true);
         applyDeclutterState();
+        return true;
+    }
+
+    function setVehicleTelemetryOverlayEnabled(enabled) {
+        vehicleTelemetryOverlayEnabled = (enabled === true);
+        if (vehicleTelemetryOverlayEnabled !== true) {
+            removeAllVehicleTelemetryMarkers();
+            return true;
+        }
+
+        refreshVehicleTelemetryOverlay(
+            window.__qgcVehiclesState ||
+            pendingVehicleState ||
+            (window.__qgcVehicleState ? [window.__qgcVehicleState] : [])
+        );
+        if (map) {
+            map.triggerRepaint();
+        }
         return true;
     }
 
@@ -3693,6 +3888,10 @@
 
     window.__qgcSetDeclutterEnabled = function (enabled) {
         return setDeclutterEnabled(enabled);
+    };
+
+    window.__qgcSetVehicleTelemetryOverlayEnabled = function (enabled) {
+        return setVehicleTelemetryOverlayEnabled(enabled);
     };
 
     window.__qgcClearVehicleState = function () {

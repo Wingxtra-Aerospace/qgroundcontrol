@@ -29,6 +29,7 @@ Item {
     property string _manualPanMode: "free"
     property string viewPanMode: followVehicleEnabled ? "follow" : _manualPanMode
     property bool declutterEnabled: false
+    property bool vehicleTelemetryOverlayEnabled: false
     property var _activeVehicle: QGroundControl.multiVehicleManager.activeVehicle
     property bool canCenterVehicle: !!(_activeVehicle && _activeVehicle.coordinate && _activeVehicle.coordinate.isValid)
 
@@ -137,6 +138,20 @@ Item {
         return false
     }
 
+    function _pushVehicleTelemetryOverlayToStreaming3D() {
+        if (_streaming3DEnabled !== true) {
+            return false
+        }
+
+        if (streaming3DLoader.status === Loader.Ready &&
+                streaming3DLoader.item &&
+                typeof streaming3DLoader.item.setVehicleTelemetryOverlayEnabled === "function") {
+            return streaming3DLoader.item.setVehicleTelemetryOverlayEnabled(vehicleTelemetryOverlayEnabled)
+        }
+
+        return false
+    }
+
     function setFollowingMode() {
         _manualPanMode = "auto"
         if (_flyViewSettings && _flyViewSettings.keepMapCenteredOnVehicle) {
@@ -197,6 +212,16 @@ Item {
     function toggleDeclutter() {
         declutterEnabled = !declutterEnabled
         _pushDeclutterStateToStreaming3D()
+    }
+
+    function toggleVehicleTelemetryOverlay() {
+        vehicleTelemetryOverlayEnabled = !vehicleTelemetryOverlayEnabled
+        _pushVehicleTelemetryOverlayToStreaming3D()
+    }
+
+    function setVehicleTelemetryOverlayEnabled(enabled) {
+        vehicleTelemetryOverlayEnabled = (enabled === true)
+        _pushVehicleTelemetryOverlayToStreaming3D()
     }
 
     function centerOnActiveVehicle() {
@@ -428,6 +453,10 @@ Item {
         _pushDeclutterStateToStreaming3D()
     }
 
+    onVehicleTelemetryOverlayEnabledChanged: {
+        _pushVehicleTelemetryOverlayToStreaming3D()
+    }
+
     Component.onCompleted: {
         // Match 2D behavior: default to manual overview mode on startup.
         showOverview()
@@ -452,6 +481,7 @@ Item {
                 _pushFollowStateToStreaming3D()
                 _pushAutoPanStateToStreaming3D()
                 _pushDeclutterStateToStreaming3D()
+                _pushVehicleTelemetryOverlayToStreaming3D()
                 if (isOpen && _streamingNeedsMapSyncOnOpen && _sync2DMapToStreaming3D()) {
                     _streamingNeedsMapSyncOnOpen = false
                 }
