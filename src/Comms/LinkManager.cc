@@ -20,6 +20,7 @@
 #include "AutoConnectSettings.h"
 #include "TCPLink.h"
 #include "UDPLink.h"
+#include "WebSocketLink.h"
 
 #ifdef QGC_ENABLE_BLUETOOTH
 #include "BluetoothLink.h"
@@ -143,6 +144,9 @@ bool LinkManager::createConnectedLink(SharedLinkConfigurationPtr &config)
 #endif
     case LinkConfiguration::TypeLogReplay:
         link = std::make_shared<LogReplayLink>(config);
+        break;
+    case LinkConfiguration::TypeWebSocket:
+        link = std::make_shared<WebSocketLink>(config);
         break;
 #ifdef QT_DEBUG
     case LinkConfiguration::TypeMock:
@@ -294,6 +298,7 @@ void LinkManager::saveLinkConfigurationList()
         settings.setValue(root + "/type", linkConfig->type());
         settings.setValue(root + "/auto", linkConfig->isAutoConnect());
         settings.setValue(root + "/high_latency", linkConfig->isHighLatency());
+        settings.setValue(root + "/force_primary", linkConfig->forcePrimary());
         linkConfig->saveSettings(settings, root);
     }
 
@@ -353,6 +358,9 @@ void LinkManager::loadLinkConfigurationList()
             case LinkConfiguration::TypeLogReplay:
                 link = new LogReplayConfiguration(name);
                 break;
+            case LinkConfiguration::TypeWebSocket:
+                link = new WebSocketConfiguration(name);
+                break;
 #ifdef QT_DEBUG
             case LinkConfiguration::TypeMock:
                 link = new MockConfiguration(name);
@@ -373,6 +381,8 @@ void LinkManager::loadLinkConfigurationList()
                 link->setAutoConnect(autoConnect);
                 const bool highLatency = settings.value(root + "/high_latency").toBool();
                 link->setHighLatency(highLatency);
+                const bool forcePrimary = settings.value(root + "/force_primary", false).toBool();
+                link->setForcePrimary(forcePrimary);
                 link->loadSettings(settings, root);
                 addConfiguration(link);
             }
@@ -567,6 +577,7 @@ QStringList LinkManager::linkTypeStrings() const
     list += tr("AirLink");
 #endif
     list += tr("Log Replay");
+    list += tr("WebSocket");
 
     if (list.size() != static_cast<int>(LinkConfiguration::TypeLast)) {
         qCWarning(LinkManagerLog) << "Internal error";
@@ -641,6 +652,48 @@ void LinkManager::removeConfiguration(LinkConfiguration *config)
 
     _removeConfiguration(config);
     saveLinkConfigurationList();
+}
+
+void LinkManager::setForcedPrimaryConfiguration(LinkConfiguration *config)
+{
+    if (!config) {
+        qCWarning(LinkManagerLog) << Q_FUNC_INFO << "called with nullptr";
+        return;
+    }
+
+    bool changed = false;
+    for (const SharedLinkConfigurationPtr &linkConfig : _rgLinkConfigs) {
+        if (!linkConfig || linkConfig->isDynamic()) {
+            continue;
+        }
+        const bool shouldForcePrimary = (linkConfig.get() == config);
+        if (linkConfig->forcePrimary() != shouldForcePrimary) {
+            linkConfig->setForcePrimary(shouldForcePrimary);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        saveLinkConfigurationList();
+    }
+}
+
+void LinkManager::clearForcedPrimaryConfiguration()
+{
+    bool changed = false;
+    for (const SharedLinkConfigurationPtr &linkConfig : _rgLinkConfigs) {
+        if (!linkConfig || linkConfig->isDynamic()) {
+            continue;
+        }
+        if (linkConfig->forcePrimary()) {
+            linkConfig->setForcePrimary(false);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        saveLinkConfigurationList();
+    }
 }
 
 void LinkManager::createMavlinkForwardingSupportLink()

@@ -195,6 +195,7 @@ set(QGC_REQUIRED_QT_COMPONENTS
     Sql
     Svg
     TextToSpeech
+    WebSockets
     Widgets
     Xml
 )

@@ -113,6 +113,22 @@ SettingsPage {
     SettingsGroupLayout {
         heading: qsTr("Links")
 
+        ButtonGroup { id: forcedPrimaryGroup }
+
+        QGCLabel {
+            Layout.fillWidth:   true
+            text:               qsTr("Primary link preference")
+            font.bold:          true
+        }
+
+        QGCLabel {
+            Layout.fillWidth:   true
+            text:               qsTr("Set one link as preferred primary. If it disconnects or is lost, QGC automatically switches to the next best available link.")
+            wrapMode:           Text.WordWrap
+            font.pointSize:     ScreenTools.smallFontPointSize
+            opacity:            0.75
+        }
+
         Repeater {
             model: _linkManager.linkConfigurations
 
@@ -123,6 +139,16 @@ SettingsPage {
                 QGCLabel {
                     Layout.fillWidth:   true
                     text:               object.name
+                }
+                QGCRadioButton {
+                    text:               qsTr("Primary")
+                    checked:            object.forcePrimary
+                    ButtonGroup.group:  forcedPrimaryGroup
+                    onClicked: {
+                        if (checked) {
+                            _linkManager.setForcedPrimaryConfiguration(object)
+                        }
+                    }
                 }
                 QGCColoredImage {
                     height:                 ScreenTools.minTouchPixels
@@ -185,6 +211,12 @@ SettingsPage {
                     }
                 }
             }
+        }
+
+        LabelledButton {
+            label:      qsTr("Primary Selection")
+            buttonText: qsTr("Auto Select")
+            onClicked:  _linkManager.clearForcedPrimaryConfiguration()
         }
 
         LabelledButton {

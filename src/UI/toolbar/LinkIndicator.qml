@@ -78,6 +78,27 @@ Item {
         return qgcPal.colorGreen
     }
 
+    function _linkQualityColor(statusText) {
+        if (!statusText || statusText.length === 0) {
+            return qgcPal.brandingBlue
+        }
+        const packetLoss = _parsePacketLoss(statusText)
+        if (packetLoss >= 30) {
+            return qgcPal.colorRed
+        } else if (packetLoss >= 10) {
+            return qgcPal.colorOrange
+        }
+        return qgcPal.colorGreen
+    }
+
+    function _linkRoleText(isPrimary) {
+        return isPrimary ? qsTr("Primary") : qsTr("Secondary")
+    }
+
+    function _linkRoleAccent(isPrimary) {
+        return isPrimary ? qgcPal.colorGreen : qgcPal.brandingBlue
+    }
+
     function _refreshLinkEntries() {
         const entries = [ ]
         for (let i = 0; i < _rgLinkNames.length; i++) {
@@ -87,6 +108,12 @@ Item {
                 isPrimary: _primaryLinkName === _rgLinkNames[i]
             })
         }
+        entries.sort(function (left, right) {
+            if (left.isPrimary === right.isPrimary) {
+                return left.name.localeCompare(right.name)
+            }
+            return left.isPrimary ? -1 : 1
+        })
         _linkEntries = entries
     }
 
@@ -154,7 +181,13 @@ Item {
         ToolIndicatorPage {
             contentComponent: Component {
                 ColumnLayout {
-                    spacing:    ScreenTools.defaultDialogControlSpacing
+                    id:         linkPanel
+                    spacing:    ScreenTools.defaultDialogControlSpacing * 0.9
+                    width:      Math.max(
+                                    ScreenTools.defaultFontPixelWidth * 36,
+                                    Math.min(ScreenTools.defaultFontPixelWidth * 58, mainWindow.width * 0.42)
+                                )
+                    implicitWidth: width
 
                     QGCLabel {
                         text:           qsTr("Connection Quality")
@@ -162,61 +195,174 @@ Item {
                         font.weight:    Font.DemiBold
                     }
 
-                    RowLayout {
-                        spacing: ScreenTools.defaultFontPixelWidth * 0.5
+                    Rectangle {
+                        Layout.fillWidth:   true
+                        Layout.preferredWidth: linkPanel.width
+                        radius:             ScreenTools.defaultFontPixelWidth * 0.55
+                        color:              qgcPal.button
+                        border.width:       1
+                        border.color:       qgcPal.groupBorder
+                        implicitHeight:     statusSummaryLayout.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.55)
 
-                        Rectangle {
-                            width:      ScreenTools.defaultFontPixelHeight * 0.65
-                            height:     width
-                            radius:     width / 2
-                            color:      _qualityColor()
-                        }
+                        RowLayout {
+                            id:                     statusSummaryLayout
+                            anchors.fill:           parent
+                            anchors.leftMargin:     ScreenTools.defaultFontPixelWidth * 0.7
+                            anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.7
+                            anchors.topMargin:      ScreenTools.defaultFontPixelHeight * 0.2
+                            anchors.bottomMargin:   ScreenTools.defaultFontPixelHeight * 0.2
+                            spacing:                ScreenTools.defaultFontPixelWidth * 0.6
 
-                        QGCLabel {
-                            text: qsTr("%1 (%2 links)").arg(_qualityLevel()).arg(Math.max(1, _rgLinkNames.length))
+                            Rectangle {
+                                width:      ScreenTools.defaultFontPixelHeight * 0.65
+                                height:     width
+                                radius:     width / 2
+                                color:      _qualityColor()
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth:   true
+                                text:               qsTr("%1 (%2 links)").arg(_qualityLevel()).arg(Math.max(1, _rgLinkNames.length))
+                                font.weight:        Font.Medium
+                            }
+
+                            Rectangle {
+                                radius:         ScreenTools.defaultFontPixelHeight * 0.22
+                                color:          Qt.rgba(_qualityColor().r, _qualityColor().g, _qualityColor().b, 0.16)
+                                border.width:   1
+                                border.color:   _qualityColor()
+                                implicitHeight: qualityChipText.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.25)
+                                implicitWidth:  qualityChipText.implicitWidth + (ScreenTools.defaultFontPixelWidth * 0.95)
+
+                                QGCLabel {
+                                    id:                 qualityChipText
+                                    anchors.centerIn:   parent
+                                    text:               _qualityLevel().toUpperCase()
+                                    font.pointSize:     ScreenTools.smallFontPointSize * 0.92
+                                    font.weight:        Font.DemiBold
+                                    color:              _qualityColor()
+                                }
+                            }
                         }
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth:   true
+                        text:               qsTr("Primary link is highlighted. Use \"Switch\" on a secondary link to make it active.")
+                        wrapMode:           Text.WordWrap
+                        font.pointSize:     ScreenTools.smallFontPointSize
+                        opacity:            0.78
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth:   true
+                        Layout.preferredHeight: 1
+                        color:              qgcPal.groupBorder
+                        opacity:            0.8
                     }
 
                     Repeater {
                         model: _linkEntries
 
                         delegate: Rectangle {
-                            Layout.fillWidth:   true
-                            implicitHeight:     linkRow.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.52)
-                            radius:             ScreenTools.buttonBorderRadius
-                            color:              qgcPal.button
-                            border.width:       1
-                            border.color:       modelData.isPrimary ? qgcPal.brandingBlue : qgcPal.groupBorder
+                            readonly property color _linkColor: _linkQualityColor(modelData.status)
+                            readonly property color _roleAccent: _linkRoleAccent(modelData.isPrimary)
+                            Layout.fillWidth:       true
+                            Layout.preferredWidth:  linkPanel.width
+                            implicitHeight:         linkCardLayout.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.62)
+                            radius:                 ScreenTools.buttonBorderRadius
+                            color:                  modelData.isPrimary
+                                                    ? Qt.rgba(_roleAccent.r, _roleAccent.g, _roleAccent.b, 0.16)
+                                                    : qgcPal.button
+                            border.width:           modelData.isPrimary ? 2 : 1
+                            border.color:           modelData.isPrimary ? _roleAccent : qgcPal.groupBorder
 
-                            RowLayout {
-                                id:                     linkRow
+                            Rectangle {
+                                anchors.left:            parent.left
+                                anchors.leftMargin:      ScreenTools.defaultFontPixelWidth * 0.32
+                                anchors.top:             parent.top
+                                anchors.bottom:          parent.bottom
+                                anchors.topMargin:       ScreenTools.defaultFontPixelHeight * 0.3
+                                anchors.bottomMargin:    ScreenTools.defaultFontPixelHeight * 0.3
+                                width:                   ScreenTools.defaultFontPixelWidth * 0.36
+                                radius:                  width / 2
+                                color:                   _roleAccent
+                                opacity:                 0.95
+                            }
+
+                            ColumnLayout {
+                                id:                     linkCardLayout
                                 anchors.fill:           parent
-                                anchors.margins:        ScreenTools.defaultFontPixelHeight * 0.3
-                                spacing:                ScreenTools.defaultFontPixelWidth * 0.6
+                                anchors.leftMargin:     ScreenTools.defaultFontPixelWidth * 1.15
+                                anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.72
+                                anchors.topMargin:      ScreenTools.defaultFontPixelHeight * 0.28
+                                anchors.bottomMargin:   ScreenTools.defaultFontPixelHeight * 0.28
+                                spacing:                ScreenTools.defaultFontPixelHeight * 0.18
 
-                                ColumnLayout {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 0
+                                    spacing: ScreenTools.defaultFontPixelWidth * 0.55
 
                                     QGCLabel {
-                                        text:           modelData.name
-                                        font.weight:    modelData.isPrimary ? Font.DemiBold : Font.Normal
+                                        Layout.fillWidth:   true
+                                        text:               modelData.name
+                                        font.weight:        Font.DemiBold
+                                        elide:              Text.ElideRight
                                     }
 
-                                    QGCLabel {
-                                        visible:        modelData.status && modelData.status.length > 0
-                                        text:           modelData.status
-                                        font.pointSize: ScreenTools.smallFontPointSize
-                                        opacity:        0.75
+                                    Rectangle {
+                                        radius:         ScreenTools.defaultFontPixelHeight * 0.2
+                                        color:          modelData.isPrimary
+                                                        ? Qt.rgba(_roleAccent.r, _roleAccent.g, _roleAccent.b, 0.22)
+                                                        : Qt.rgba(_roleAccent.r, _roleAccent.g, _roleAccent.b, 0.14)
+                                        border.width:   1
+                                        border.color:   _roleAccent
+                                        implicitHeight: roleChipText.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.22)
+                                        implicitWidth:  roleChipText.implicitWidth + (ScreenTools.defaultFontPixelWidth * 0.8)
+
+                                        QGCLabel {
+                                            id:                 roleChipText
+                                            anchors.centerIn:   parent
+                                            text:               _linkRoleText(modelData.isPrimary).toUpperCase()
+                                            font.pointSize:     ScreenTools.smallFontPointSize * 0.85
+                                            font.weight:        Font.DemiBold
+                                            color:              _roleAccent
+                                        }
                                     }
                                 }
 
-                                QGCButton {
-                                    text:               modelData.isPrimary ? qsTr("Primary") : qsTr("Set Primary")
-                                    enabled:            !modelData.isPrimary
-                                    onClicked: {
-                                        _activeVehicle.vehicleLinkManager.primaryLinkName = modelData.name
-                                        _refreshLinkEntries()
+                                QGCLabel {
+                                    Layout.fillWidth:   true
+                                    text:               (modelData.status && modelData.status.length > 0)
+                                                        ? modelData.status
+                                                        : qsTr("Status unavailable")
+                                    font.pointSize:     ScreenTools.smallFontPointSize
+                                    color:              _linkColor
+                                    wrapMode:           Text.WordWrap
+                                    maximumLineCount:   2
+                                    elide:              Text.ElideRight
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: ScreenTools.defaultFontPixelWidth * 0.5
+
+                                    QGCButton {
+                                        text:               modelData.isPrimary ? qsTr("Active") : qsTr("Switch")
+                                        enabled:            !modelData.isPrimary
+                                        onClicked: {
+                                            _activeVehicle.vehicleLinkManager.primaryLinkName = modelData.name
+                                            _refreshLinkEntries()
+                                        }
+                                    }
+
+                                    QGCLabel {
+                                        Layout.fillWidth:   true
+                                        visible:            modelData.isPrimary
+                                        text:               qsTr("This link currently carries priority traffic.")
+                                        font.pointSize:     ScreenTools.smallFontPointSize
+                                        opacity:            0.72
+                                        wrapMode:           Text.WordWrap
                                     }
                                 }
                             }
@@ -224,9 +370,11 @@ Item {
                     }
 
                     RowLayout {
-                        spacing: ScreenTools.defaultFontPixelWidth * 0.5
+                        Layout.fillWidth:   true
+                        spacing:            ScreenTools.defaultFontPixelWidth * 0.5
 
                         QGCButton {
+                            Layout.fillWidth:   true
                             text:       qsTr("Comm Links")
                             onClicked: {
                                 mainWindow.showSettingsTool("Comm Links")
@@ -235,6 +383,7 @@ Item {
                         }
 
                         QGCButton {
+                            Layout.fillWidth:   true
                             text:       qsTr("Disconnect")
                             enabled:    _activeVehicle
                             onClicked: {

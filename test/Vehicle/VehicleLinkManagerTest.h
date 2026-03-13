@@ -27,6 +27,7 @@ private slots:
     void _multiLinkSingleVehicleTest();
     void _connectionRemovedTest();
     void _highLatencyLinkTest();
+    void _forcedPrimaryFailoverTest();
 
 private:
     void _startMockLink(int mockIndex, bool highLatency, bool incrementVehicleId, SharedLinkConfigurationPtr &sharedConfig, SharedLinkInterfacePtr &mockLink);

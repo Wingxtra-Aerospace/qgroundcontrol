@@ -28,6 +28,7 @@ class LinkConfiguration : public QObject
     Q_PROPERTY(QString          settingsURL     READ settingsURL                            CONSTANT)
     Q_PROPERTY(QString          settingsTitle   READ settingsTitle                          CONSTANT)
     Q_PROPERTY(bool             highLatency     READ isHighLatency  WRITE setHighLatency    NOTIFY highLatencyChanged)
+    Q_PROPERTY(bool             forcePrimary    READ forcePrimary   WRITE setForcePrimary   NOTIFY forcePrimaryChanged)
 
 public:
     LinkConfiguration(const QString &name, QObject *parent = nullptr);
@@ -66,6 +67,9 @@ public:
     /// Set if this is this an High Latency configuration.
     void setHighLatency(bool hl = false);
 
+    bool forcePrimary() const { return _forcePrimary; }
+    void setForcePrimary(bool forcePrimary = false);
+
     /// Copy instance data, When manipulating data, you create a copy of the configuration using the copy constructor,
     /// edit it and then transfer its content to the original using this method.
     ///     @param[in] source The source instance (the edited copy)
@@ -89,6 +93,7 @@ public:
         AirLink,
 #endif
         TypeLogReplay,
+        TypeWebSocket,  ///< WebSocket Link (WS/WSS)
         TypeLast        // Last type value (type >= TypeLast == invalid)
     };
     Q_ENUM(LinkType)
@@ -131,6 +136,7 @@ signals:
     void dynamicChanged();
     void autoConnectChanged();
     void highLatencyChanged();
+    void forcePrimaryChanged();
 
 protected:
     std::weak_ptr<LinkInterface> _link; ///< Link currently using this configuration (if any)
@@ -141,6 +147,7 @@ private:
     bool _forwarding = false;  ///< Automatically added Mavlink forwarding connection
     bool _autoConnect = false; ///< This connection is started automatically at boot
     bool _highLatency = false;
+    bool _forcePrimary = false; ///< User-enforced primary link preference
 };
 
 typedef std::shared_ptr<LinkConfiguration> SharedLinkConfigurationPtr;

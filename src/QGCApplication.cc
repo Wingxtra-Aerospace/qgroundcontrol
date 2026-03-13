@@ -416,6 +416,14 @@ void QGCApplication::clearDeleteAllSettingsNextBoot()
 void QGCApplication::reportMissingParameter(int componentId, const QString &name)
 {
     const QPair<int, QString> missingParam(componentId, name);
+    const QString missingParamKey = QStringLiteral("%1:%2").arg(componentId).arg(name);
+
+    // Avoid repeatedly interrupting operators for the same missing parameter set
+    // when switching between vehicles/views in the same app session.
+    if (_missingParamsAlreadyReported.contains(missingParamKey)) {
+        return;
+    }
+    _missingParamsAlreadyReported.insert(missingParamKey);
 
     if (!_missingParams.contains(missingParam)) {
         _missingParams.append(missingParam);

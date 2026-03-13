@@ -141,6 +141,7 @@ private:
     static constexpr int _missingParamsDelayedDisplayTimerTimeout = 1000;   ///< Timeout to wait for next missing fact to come in before display
     QTimer _missingParamsDelayedDisplayTimer;                               ///< Timer use to delay missing fact display
     QList<QPair<int,QString>> _missingParams;                               ///< List of missing parameter component id:name
+    QSet<QString> _missingParamsAlreadyReported;                            ///< Set of missing params already reported this session
 
     QQmlApplicationEngine *_qmlAppEngine = nullptr;
     bool _logOutput = false;    ///< true: Log Qt debug output to file

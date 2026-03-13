@@ -26,5 +26,6 @@ qt_add_qml_module(AppSettingsModule
         TelemetrySettings.qml
         UdpSettings.qml
         VideoSettings.qml
+        WebSocketSettings.qml
     NO_PLUGIN # Required by Qt 6.6.3. TODO: Remove when no longer supported.
 )

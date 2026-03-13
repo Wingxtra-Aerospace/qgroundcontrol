@@ -208,6 +208,11 @@ void VehicleLinkManager::_addLink(LinkInterface *link)
     _updatePrimaryLink();
 
     (void) connect(link, &LinkInterface::disconnected, this, &VehicleLinkManager::_linkDisconnected);
+    (void) connect(link->linkConfiguration().get(), &LinkConfiguration::forcePrimaryChanged, this, [this]() {
+        if (_updatePrimaryLink()) {
+            emit linkStatusesChanged();
+        }
+    });
 
     emit linkNamesChanged();
 
@@ -232,6 +237,7 @@ void VehicleLinkManager::_removeLink(LinkInterface *link)
     }
 
     disconnect(link, &LinkInterface::disconnected, this, &VehicleLinkManager::_linkDisconnected);
+    disconnect(link->linkConfiguration().get(), &LinkConfiguration::forcePrimaryChanged, this, nullptr);
     link->removeVehicleReference();
     emit linkNamesChanged();
     _rgLinkInfo.removeAt(linkIndex); // Remove the link last since it may cause the link itself to be deleted
@@ -260,6 +266,12 @@ void VehicleLinkManager::_linkDisconnected()
 
 SharedLinkInterfacePtr VehicleLinkManager::_bestActivePrimaryLink()
 {
+    // Operator-enforced primary link has top priority while it remains available.
+    SharedLinkInterfacePtr forcedPrimaryLink = _bestForcedPrimaryLink();
+    if (forcedPrimaryLink) {
+        return forcedPrimaryLink;
+    }
+
 #ifndef QGC_NO_SERIAL_LINK
     // Best choice is a USB connection
     for (const LinkInfo_t &linkInfo: _rgLinkInfo) {
@@ -311,17 +323,80 @@ SharedLinkInterfacePtr VehicleLinkManager::_bestActivePrimaryLink()
     return {};
 }
 
+SharedLinkInterfacePtr VehicleLinkManager::_bestForcedPrimaryLink()
+{
+    const SharedLinkInterfacePtr currentPrimaryLink = _primaryLink.lock();
+
+#ifndef QGC_NO_SERIAL_LINK
+    for (const LinkInfo_t &linkInfo: _rgLinkInfo) {
+        if (linkInfo.commLost) {
+            continue;
+        }
+
+        const SharedLinkInterfacePtr link = linkInfo.link;
+        const SharedLinkConfigurationPtr config = link ? link->linkConfiguration() : SharedLinkConfigurationPtr();
+        if (!config || !config->forcePrimary()) {
+            continue;
+        }
+
+        if (LinkManager::isLinkUSBDirect(link.get())) {
+            return link;
+        }
+    }
+#endif
+
+    for (const LinkInfo_t &linkInfo: _rgLinkInfo) {
+        if (linkInfo.commLost) {
+            continue;
+        }
+
+        const SharedLinkInterfacePtr link = linkInfo.link;
+        const SharedLinkConfigurationPtr config = link ? link->linkConfiguration() : SharedLinkConfigurationPtr();
+        if (!config || !config->forcePrimary() || config->isHighLatency()) {
+            continue;
+        }
+
+        return link;
+    }
+
+    if (currentPrimaryLink) {
+        const SharedLinkConfigurationPtr currentConfig = currentPrimaryLink->linkConfiguration();
+        const int currentIndex = _containsLinkIndex(currentPrimaryLink.get());
+        if ((currentIndex != -1) && !_rgLinkInfo[currentIndex].commLost && currentConfig && currentConfig->forcePrimary() && currentConfig->isHighLatency()) {
+            return currentPrimaryLink;
+        }
+    }
+
+    for (const LinkInfo_t &linkInfo: _rgLinkInfo) {
+        if (linkInfo.commLost) {
+            continue;
+        }
+
+        const SharedLinkInterfacePtr link = linkInfo.link;
+        const SharedLinkConfigurationPtr config = link ? link->linkConfiguration() : SharedLinkConfigurationPtr();
+        if (config && config->forcePrimary() && config->isHighLatency()) {
+            return link;
+        }
+    }
+
+    return {};
+}
+
 bool VehicleLinkManager::_updatePrimaryLink()
 {
     SharedLinkInterfacePtr primaryLink = _primaryLink.lock();
     const int linkIndex = _containsLinkIndex(primaryLink.get());
+    const SharedLinkInterfacePtr bestActivePrimaryLink = _bestActivePrimaryLink();
 
-    if ((linkIndex != -1) && !_rgLinkInfo[linkIndex].commLost && !primaryLink->linkConfiguration()->isHighLatency()) {
+    if ((linkIndex != -1) &&
+            !_rgLinkInfo[linkIndex].commLost &&
+            primaryLink &&
+            !primaryLink->linkConfiguration()->isHighLatency() &&
+            (primaryLink == bestActivePrimaryLink)) {
         // Current priority link is still valid
         return false;
     }
 
-    SharedLinkInterfacePtr bestActivePrimaryLink = _bestActivePrimaryLink();
     if ((linkIndex != -1) && !bestActivePrimaryLink) {
         // Nothing better available, leave things set to current primary link
         return false;

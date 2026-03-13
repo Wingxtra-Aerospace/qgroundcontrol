@@ -301,6 +301,59 @@ void VehicleLinkManagerTest::_highLatencyLinkTest()
     spyTransmissionEnabledChanged.clear();
 }
 
+void VehicleLinkManagerTest::_forcedPrimaryFailoverTest()
+{
+    SharedLinkConfigurationPtr mockConfig1;
+    SharedLinkInterfacePtr mockLink1;
+    SharedLinkConfigurationPtr mockConfig2;
+    SharedLinkInterfacePtr mockLink2;
+
+    QSignalSpy spyVehicleCreate(MultiVehicleManager::instance(), &MultiVehicleManager::activeVehicleChanged);
+
+    _startMockLink(1, false /*highLatency*/, false /*incrementVehicleId*/, mockConfig1, mockLink1);
+    _startMockLink(2, false /*highLatency*/, false /*incrementVehicleId*/, mockConfig2, mockLink2);
+
+    QCOMPARE(spyVehicleCreate.wait(1000), true);
+    QCOMPARE(MultiVehicleManager::instance()->vehicles()->count(), 1);
+    Vehicle *const vehicle = MultiVehicleManager::instance()->activeVehicle();
+    QVERIFY(vehicle);
+    VehicleLinkManager *const vehicleLinkManager = vehicle->vehicleLinkManager();
+    QVERIFY(vehicleLinkManager);
+    QSignalSpy spyVehicleInitialConnectComplete(vehicle, &Vehicle::initialConnectComplete);
+    QCOMPARE(spyVehicleInitialConnectComplete.wait(3000), true);
+
+    MockLink *const pMockLink1 = qobject_cast<MockLink*>(mockLink1.get());
+    QVERIFY(pMockLink1);
+
+    QSignalSpy spyPrimaryLinkChanged(vehicleLinkManager, &VehicleLinkManager::primaryLinkChanged);
+    QVERIFY(spyPrimaryLinkChanged.isValid());
+
+    // Force Link1 to become primary.
+    mockConfig1->setForcePrimary(true);
+    if (vehicleLinkManager->primaryLink().lock().get() != mockLink1.get()) {
+        QCOMPARE(spyPrimaryLinkChanged.wait(1000), true);
+    }
+    QCOMPARE(vehicleLinkManager->primaryLink().lock().get(), mockLink1.get());
+
+    // Forced primary comm loss should fail over to Link2.
+    spyPrimaryLinkChanged.clear();
+    pMockLink1->setCommLost(true);
+    QCOMPARE(spyPrimaryLinkChanged.wait(VehicleLinkManager::_heartbeatMaxElpasedMSecs * 2), true);
+    QCOMPARE(vehicleLinkManager->primaryLink().lock().get(), mockLink2.get());
+
+    // Forced primary comm regain should restore Link1 as primary.
+    spyPrimaryLinkChanged.clear();
+    pMockLink1->setCommLost(false);
+    QCOMPARE(spyPrimaryLinkChanged.wait(VehicleLinkManager::_heartbeatMaxElpasedMSecs * 2), true);
+    QCOMPARE(vehicleLinkManager->primaryLink().lock().get(), mockLink1.get());
+
+    // Forced primary disconnect should also fail over to Link2.
+    spyPrimaryLinkChanged.clear();
+    mockLink1->disconnect();
+    QCOMPARE(spyPrimaryLinkChanged.wait(1000), true);
+    QCOMPARE(vehicleLinkManager->primaryLink().lock().get(), mockLink2.get());
+}
+
 void VehicleLinkManagerTest::_startMockLink(int mockIndex, bool highLatency, bool incrementVehicleId, SharedLinkConfigurationPtr &mockConfig, SharedLinkInterfacePtr &mockLink)
 {
     MockConfiguration *const pMockConfig = new MockConfiguration(QStringLiteral("Mock %1").arg(mockIndex));

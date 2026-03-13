@@ -70,6 +70,7 @@ private:
     void _removeLink(LinkInterface *link);
     void _linkDisconnected();
     bool _updatePrimaryLink();
+    SharedLinkInterfacePtr _bestForcedPrimaryLink();
     SharedLinkInterfacePtr _bestActivePrimaryLink();
     void _commRegainedOnLink(LinkInterface *link);
 

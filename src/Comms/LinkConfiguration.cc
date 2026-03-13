@@ -14,6 +14,7 @@
 #include "UDPLink.h"
 #include "TCPLink.h"
 #include "LogReplayLink.h"
+#include "WebSocketLink.h"
 #ifdef QGC_ENABLE_BLUETOOTH
 #include "BluetoothLink.h"
 #endif
@@ -38,6 +39,7 @@ LinkConfiguration::LinkConfiguration(const LinkConfiguration *copy, QObject *par
     , _dynamic(copy->isDynamic())
     , _autoConnect(copy->isAutoConnect())
     , _highLatency(copy->isHighLatency())
+    , _forcePrimary(copy->forcePrimary())
 {
     // qCDebug(AudioOutputLog) << Q_FUNC_INFO << this;
 
@@ -58,6 +60,7 @@ void LinkConfiguration::copyFrom(const LinkConfiguration *source)
     setDynamic(source->isDynamic());
     setAutoConnect(source->isAutoConnect());
     setHighLatency(source->isHighLatency());
+    setForcePrimary(source->forcePrimary());
 }
 
 LinkConfiguration *LinkConfiguration::createSettings(int type, const QString &name)
@@ -83,6 +86,9 @@ LinkConfiguration *LinkConfiguration::createSettings(int type, const QString &na
 #endif
     case TypeLogReplay:
         config = new LogReplayConfiguration(name);
+        break;
+    case TypeWebSocket:
+        config = new WebSocketConfiguration(name);
         break;
 #ifdef QT_DEBUG
     case TypeMock:
@@ -125,6 +131,9 @@ LinkConfiguration *LinkConfiguration::duplicateSettings(const LinkConfiguration 
 #endif
     case TypeLogReplay:
         dupe = new LogReplayConfiguration(qobject_cast<const LogReplayConfiguration*>(source));
+        break;
+    case TypeWebSocket:
+        dupe = new WebSocketConfiguration(qobject_cast<const WebSocketConfiguration*>(source));
         break;
 #ifdef QT_DEBUG
     case TypeMock:
@@ -183,5 +192,13 @@ void LinkConfiguration::setHighLatency(bool hl)
     if (hl != _highLatency) {
         _highLatency = hl;
         emit highLatencyChanged();
+    }
+}
+
+void LinkConfiguration::setForcePrimary(bool forcePrimary)
+{
+    if (forcePrimary != _forcePrimary) {
+        _forcePrimary = forcePrimary;
+        emit forcePrimaryChanged();
     }
 }
