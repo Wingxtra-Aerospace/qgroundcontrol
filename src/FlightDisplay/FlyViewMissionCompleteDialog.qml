@@ -38,6 +38,7 @@ Item {
     property bool _vehicleInMissionFlightMode:      _activeVehicle ? (_activeVehicle.flightMode === _activeVehicle.missionFlightMode) : false
     property bool _vehicleWasInMissionFlightMode:   false
     property bool _missionCompleteDialogConsumed:   false
+    property var  _dialogConsumedByVehicleId:       ({})
     property bool _missionSourcesContainItems:      (missionController ? missionController.containsItems : false) ||
                                                     (geoFenceController ? geoFenceController.containsItems : false) ||
                                                     (rallyPointController ? rallyPointController.containsItems : false)
@@ -48,7 +49,14 @@ Item {
     function _resetMissionCycleState() {
         _vehicleWasArmed = false
         _vehicleWasInMissionFlightMode = false
-        _missionCompleteDialogConsumed = false
+        _missionCompleteDialogConsumed = (_activeVehicleId >= 0) ? !!_dialogConsumedByVehicleId[_activeVehicleId] : false
+    }
+
+    function _setMissionCompleteDialogConsumedForActiveVehicle(consumed) {
+        _missionCompleteDialogConsumed = consumed
+        if (_activeVehicleId >= 0) {
+            _dialogConsumedByVehicleId[_activeVehicleId] = consumed
+        }
     }
 
     function _openMissionCompleteDialog() {
@@ -84,13 +92,8 @@ Item {
     }
 
     on_ActiveVehicleChanged: {
-        if (_activeVehicleId === _missionCycleVehicleId) {
-            return
-        }
-
         // Keep mission-complete state scoped to the active vehicle so changing
         // selection cannot replay a previously-consumed completion popup.
-        _missionCycleVehicleId = _activeVehicleId
         _resetMissionCycleState()
     }
 
@@ -99,10 +102,13 @@ Item {
             _missionCycleVehicleId = _activeVehicleId
             _vehicleWasArmed = true
             _vehicleWasInMissionFlightMode = _vehicleInMissionFlightMode
-            _missionCompleteDialogConsumed = false
+            _setMissionCompleteDialogConsumedForActiveVehicle(false)
         } else {
-            if (_activeVehicle && _showMissionCompleteDialog && !_missionCompleteDialogConsumed) {
-                _missionCompleteDialogConsumed = true
+            if (_activeVehicle &&
+                    (_missionCycleVehicleId === _activeVehicleId) &&
+                    _showMissionCompleteDialog &&
+                    !_missionCompleteDialogConsumed) {
+                _setMissionCompleteDialogConsumedForActiveVehicle(true)
                 _openMissionCompleteDialog()
             }
             _vehicleWasArmed = false
