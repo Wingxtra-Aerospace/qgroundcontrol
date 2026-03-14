@@ -33,6 +33,22 @@ QGC_LOGGING_CATEGORY(ParameterManagerVerbose1Log, "qgc.factsystem.parametermanag
 QGC_LOGGING_CATEGORY(ParameterManagerVerbose2Log, "qgc.factsystem.parametermanager2:verbose")
 QGC_LOGGING_CATEGORY(ParameterManagerDebugCacheFailureLog, "qgc.factsystem.parametermanager.debugcachefailure") // Turn on to debug parameter cache crc misses
 
+namespace {
+
+constexpr int kParameterNoticeDurationMs = 5200;
+
+void showParameterWarningNotice(const QString& title, const QString& message, int durationMs = kParameterNoticeDurationMs)
+{
+    qgcApp()->showTransientTopMessage(message, title, durationMs, QStringLiteral("warning"));
+}
+
+void showParameterErrorNotice(const QString& title, const QString& message, int durationMs = kParameterNoticeDurationMs)
+{
+    qgcApp()->showTransientTopMessage(message, title, durationMs, QStringLiteral("error"));
+}
+
+} // namespace
+
 ParameterManager::ParameterManager(Vehicle *vehicle)
     : QObject(vehicle)
     , _vehicle(vehicle)
@@ -689,7 +705,7 @@ void ParameterManager::_waitingParamTimeout()
                     _waitingWriteParamNameMap[componentId].remove(paramName);
                     const QString errorMsg = tr("Parameter write failed: veh:%1 comp:%2 param:%3").arg(_vehicle->id()).arg(componentId).arg(paramName);
                     qCDebug(ParameterManagerLog) << errorMsg;
-                    qgcApp()->showAppMessage(errorMsg);
+                    showParameterErrorNotice(tr("Parameter Write"), errorMsg);
                 }
             }
         }
@@ -711,7 +727,7 @@ void ParameterManager::_waitingParamTimeout()
                     (void) _waitingReadParamNameMap[componentId].remove(paramName);
                     const QString errorMsg = tr("Parameter read failed: veh:%1 comp:%2 param:%3").arg(_vehicle->id()).arg(componentId).arg(paramName);
                     qCDebug(ParameterManagerLog) << errorMsg;
-                    qgcApp()->showAppMessage(errorMsg);
+                    showParameterErrorNotice(tr("Parameter Read"), errorMsg);
                 }
             }
         }
@@ -930,7 +946,7 @@ void ParameterManager::_tryCacheHashLoad(int vehicleId, int componentId, const Q
             for (const QString &name: cacheMap.keys()) {
                 _debugCacheParamSeen[componentId][name] = false;
             }
-            qgcApp()->showAppMessage(tr("Parameter cache CRC match failed"));
+            showParameterWarningNotice(tr("Parameter Cache"), tr("Parameter cache CRC match failed"));
         }
     }
 }
@@ -1135,7 +1151,7 @@ void ParameterManager::_checkInitialLoadComplete()
                                     "If you are using modified firmware, you may need to resolve any vehicle startup errors to resolve the issue. "
                                     "If you are using standard firmware, you may need to upgrade to a newer version to resolve the issue.").arg(QCoreApplication::applicationName()).arg(_vehicle->id());
         qCDebug(ParameterManagerLog) << errorMsg;
-        qgcApp()->showAppMessage(errorMsg);
+        showParameterErrorNotice(tr("Firmware Parameters"), errorMsg);
         if (!qgcApp()->runningUnitTests()) {
             qCWarning(ParameterManagerLog) << _logVehiclePrefix(-1) << "The following parameter indices could not be loaded after the maximum number of retries:" << indexList;
         }
@@ -1158,7 +1174,7 @@ void ParameterManager::_initialRequestTimeout()
         const QString errorMsg = tr("Vehicle %1 did not respond to request for parameters. "
                                     "This will cause %2 to be unable to display its full user interface.").arg(_vehicle->id()).arg(QCoreApplication::applicationName());
         qCDebug(ParameterManagerLog) << errorMsg;
-        qgcApp()->showAppMessage(errorMsg);
+        showParameterErrorNotice(tr("Firmware Parameters"), errorMsg);
     }
 }
 

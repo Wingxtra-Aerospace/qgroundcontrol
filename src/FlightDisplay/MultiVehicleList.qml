@@ -291,9 +291,11 @@ Item {
                 spacing:                    _margin
 
                 RowLayout {
-                    anchors.horizontalCenter:   parent.horizontalCenter
-                    anchors.margins:    _margin
-                    spacing:            _margin
+                    anchors.left:           parent.left
+                    anchors.right:          parent.right
+                    anchors.leftMargin:     _margin
+                    anchors.rightMargin:    _margin
+                    spacing:                _margin
 
                     IntegratedCompassAttitude {
                         id: compassWidget
@@ -328,20 +330,29 @@ Item {
 
                     ColumnLayout {
                         spacing:              _margin
-                        Layout.rightMargin:   compassWidget.width / 4
-                        Layout.alignment:     Qt.AlignCenter
+                        Layout.fillWidth:     true
+                        Layout.minimumWidth:  0
+                        Layout.alignment:     Qt.AlignVCenter
 
                         FlightModeMenu {
-                            Layout.alignment:     Qt.AlignHCenter
+                            Layout.fillWidth:     true
+                            Layout.minimumWidth:  0
                             font.pointSize:       ScreenTools.largeFontPointSize
                             color:                qgcPal.text
                             currentVehicle:       _vehicle
+                            horizontalAlignment:  Text.AlignHCenter
+                            elide:                Text.ElideRight
+                            wrapMode:             Text.NoWrap
+                            maximumLineCount:     1
                         }
 
                         QGCLabel {
-                            Layout.alignment:     Qt.AlignHCenter
+                            Layout.fillWidth:     true
                             text:                 _vehicle && _vehicle.armed ? qsTr("Armed") : qsTr("Disarmed")
                             color:                qgcPal.text
+                            horizontalAlignment:  Text.AlignHCenter
+                            elide:                Text.ElideRight
+                            wrapMode:             Text.NoWrap
                         }
                     }
                 }

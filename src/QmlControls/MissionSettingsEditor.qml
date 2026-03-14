@@ -42,6 +42,7 @@ Rectangle {
     readonly property string _firmwareLabel:    qsTr("Firmware")
     readonly property string _vehicleLabel:     qsTr("Vehicle")
     readonly property real  _margin:            ScreenTools.defaultFontPixelWidth / 2
+    readonly property real  _vehicleInfoLabelWidth: ScreenTools.defaultFontPixelWidth * 7
 
     QGCPalette { id: qgcPal }
     QGCFileDialogController { id: fileController }
@@ -181,34 +182,48 @@ Rectangle {
 
                 QGCLabel {
                     text:               _firmwareLabel
-                    Layout.fillWidth:   true
+                    Layout.preferredWidth:  _vehicleInfoLabelWidth
+                    Layout.alignment:       Qt.AlignTop
                     visible:            _multipleFirmware
                 }
                 FactComboBox {
                     fact:                   QGroundControl.settingsManager.appSettings.offlineEditingFirmwareClass
                     indexModel:             false
+                    Layout.fillWidth:       true
+                    Layout.minimumWidth:    0
                     Layout.preferredWidth:  _fieldWidth
                     visible:                _multipleFirmware && _allowFWVehicleTypeSelection
                 }
                 QGCLabel {
-                    text:       _controllerVehicle.firmwareTypeString
-                    visible:    _multipleFirmware && !_allowFWVehicleTypeSelection
+                    text:                   _controllerVehicle.firmwareTypeString
+                    visible:                _multipleFirmware && !_allowFWVehicleTypeSelection
+                    Layout.fillWidth:       true
+                    Layout.minimumWidth:    0
+                    Layout.alignment:       Qt.AlignTop
+                    wrapMode:               Text.WordWrap
                 }
 
                 QGCLabel {
                     text:               _vehicleLabel
-                    Layout.fillWidth:   true
+                    Layout.preferredWidth:  _vehicleInfoLabelWidth
+                    Layout.alignment:       Qt.AlignTop
                     visible:            _multipleVehicleTypes
                 }
                 FactComboBox {
                     fact:                   QGroundControl.settingsManager.appSettings.offlineEditingVehicleClass
                     indexModel:             false
+                    Layout.fillWidth:       true
+                    Layout.minimumWidth:    0
                     Layout.preferredWidth:  _fieldWidth
                     visible:                _multipleVehicleTypes && _allowFWVehicleTypeSelection
                 }
                 QGCLabel {
-                    text:       _controllerVehicle.vehicleTypeString
-                    visible:    _multipleVehicleTypes && !_allowFWVehicleTypeSelection
+                    text:                   _controllerVehicle.vehicleTypeString
+                    visible:                _multipleVehicleTypes && !_allowFWVehicleTypeSelection
+                    Layout.fillWidth:       true
+                    Layout.minimumWidth:    0
+                    Layout.alignment:       Qt.AlignTop
+                    wrapMode:               Text.WordWrap
                 }
 
                 QGCLabel {
