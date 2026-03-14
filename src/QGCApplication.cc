@@ -449,7 +449,12 @@ void QGCApplication::_missingParamsDisplay()
     }
     _missingParams.clear();
 
-    showAppMessage(tr("Parameters are missing from firmware. You may be running a version of firmware which is not fully supported or your firmware has a bug in it. Missing params: %1").arg(params));
+    showTransientTopMessage(
+        tr("Missing params: %1").arg(params),
+        tr("Firmware Parameters"),
+        5200,
+        QStringLiteral("warning")
+    );
 }
 
 QObject *QGCApplication::_rootQmlObject()
@@ -497,6 +502,31 @@ void QGCApplication::showAppMessage(const QString &message, const QString &title
         // UI isn't ready yet
         _delayedAppMessages.append(QPair<QString, QString>(dialogTitle, message));
         QTimer::singleShot(200, this, &QGCApplication::_showDelayedAppMessages);
+    }
+}
+
+void QGCApplication::showTransientTopMessage(const QString &message, const QString &title, int durationMs, const QString &severity)
+{
+    const QString dialogTitle = title.isEmpty() ? applicationName() : title;
+
+    QObject *const rootQmlObject = _rootQmlObject();
+    if (rootQmlObject) {
+        QVariant varReturn;
+        const QVariant varMessage = QVariant::fromValue(message);
+        const QVariant varDuration = QVariant::fromValue(durationMs);
+        const QVariant varSeverity = QVariant::fromValue(severity);
+        QMetaObject::invokeMethod(rootQmlObject,
+                                  "_showTransientTopMessage",
+                                  Q_RETURN_ARG(QVariant, varReturn),
+                                  Q_ARG(QVariant, dialogTitle),
+                                  Q_ARG(QVariant, varMessage),
+                                  Q_ARG(QVariant, varDuration),
+                                  Q_ARG(QVariant, varSeverity));
+    } else if (runningUnitTests()) {
+        qCDebug(QGCApplicationLog) << "QGCApplication::showTransientTopMessage unittest title:message"
+                                   << dialogTitle << message << durationMs << severity;
+    } else {
+        qCDebug(QGCApplicationLog) << "Transient top message dropped before UI was ready:" << dialogTitle << message << severity;
     }
 }
 

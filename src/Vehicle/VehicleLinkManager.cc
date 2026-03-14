@@ -10,6 +10,7 @@
 #include "VehicleLinkManager.h"
 #include "Vehicle.h"
 #include "LinkManager.h"
+#include "MultiVehicleManager.h"
 #include "QGCApplication.h"
 #include "AudioOutput.h"
 #ifndef QGC_NO_SERIAL_LINK
@@ -89,7 +90,7 @@ void VehicleLinkManager::_commRegainedOnLink(LinkInterface *link)
 
     if (!primarySwitchMessage.isEmpty()) {
         AudioOutput::instance()->say(primarySwitchMessage.toLower());
-        qgcApp()->showAppMessage(primarySwitchMessage);
+        qgcApp()->showTransientTopMessage(primarySwitchMessage, tr("Communication Link"), 4200, QStringLiteral("warning"));
     }
 
     emit linkStatusesChanged();
@@ -108,6 +109,14 @@ void VehicleLinkManager::_commRegainedOnLink(LinkInterface *link)
     }
 
     if (noCommunicationLoss) {
+        if (!commRegainedMessage.isEmpty()) {
+            qgcApp()->showTransientTopMessage(
+                commRegainedMessage,
+                tr("Communication Regained"),
+                3600,
+                QStringLiteral("success")
+            );
+        }
         _communicationLost = false;
         emit communicationLostChanged(_communicationLost);
     }
@@ -141,7 +150,7 @@ void VehicleLinkManager::_commLostCheck()
     if (_updatePrimaryLink()) {
         QString msg = tr("%1Switching communication to secondary link.").arg(_vehicle->_vehicleIdSpeech());
         AudioOutput::instance()->say(msg.toLower());
-        qgcApp()->showAppMessage(msg);
+        qgcApp()->showTransientTopMessage(msg, tr("Communication Link"), 4200, QStringLiteral("warning"));
     }
 
     if (_communicationLost) {
@@ -164,6 +173,15 @@ void VehicleLinkManager::_commLostCheck()
         }
 
         AudioOutput::instance()->say(tr("%1Communication lost").arg(_vehicle->_vehicleIdSpeech()).toLower());
+
+        if (_vehicle != MultiVehicleManager::instance()->activeVehicle()) {
+            qgcApp()->showTransientTopMessage(
+                tr("%1Communication lost").arg(_vehicle->_vehicleIdSpeech()),
+                tr("Communication Lost"),
+                4200,
+                QStringLiteral("error")
+            );
+        }
 
         _communicationLost = true;
         emit communicationLostChanged(_communicationLost);

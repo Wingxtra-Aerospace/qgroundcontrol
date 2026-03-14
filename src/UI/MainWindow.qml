@@ -381,6 +381,47 @@ ApplicationWindow {
         showMessageDialog(dialogTitle, dialogText)
     }
 
+    function _transientNoticeNormalizedSeverity(severity) {
+        const severityText = severity ? severity.toString().toLowerCase() : "info"
+        if (severityText === "success" || severityText === "warning" || severityText === "error") {
+            return severityText
+        }
+        return "info"
+    }
+
+    function _transientNoticeAccentColor(severity) {
+        switch (_transientNoticeNormalizedSeverity(severity)) {
+        case "success":
+            return qgcPal.colorGreen
+        case "warning":
+            return qgcPal.colorOrange
+        case "error":
+            return qgcPal.colorRed
+        default:
+            return qgcPal.brandingBlue
+        }
+    }
+
+    function _transientNoticeGlyph(severity) {
+        switch (_transientNoticeNormalizedSeverity(severity)) {
+        case "success":
+            return "\u2713"
+        case "warning":
+        case "error":
+            return "!"
+        default:
+            return "i"
+        }
+    }
+
+    function _showTransientTopMessage(dialogTitle, dialogText, durationMs, severity) {
+        transientTopNoticePopup.noticeTitle = dialogTitle
+        transientTopNoticePopup.noticeText = dialogText
+        transientTopNoticePopup.noticeDurationMs = Math.max(2200, Number(durationMs) || 0)
+        transientTopNoticePopup.noticeSeverity = _transientNoticeNormalizedSeverity(severity)
+        transientTopNoticePopup.present()
+    }
+
     Component {
         id: simpleMessageDialogComponent
 
@@ -931,6 +972,160 @@ ApplicationWindow {
                     QGroundControl.multiVehicleManager.activeVehicle.resetErrorLevelMessages();
                 }
             }
+        }
+    }
+
+    Popup {
+        id:                 transientTopNoticePopup
+        y:                  ScreenTools.toolbarHeight + (ScreenTools.defaultFontPixelHeight * 0.55)
+        x:                  Math.round((mainWindow.width - width) * 0.5) + _shakeOffset
+        width:              Math.min(mainWindow.width * 0.46, ScreenTools.defaultFontPixelWidth * 52)
+        height:             transientTopNoticeContent.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.9)
+        padding:            0
+        modal:              false
+        focus:              false
+        closePolicy:        Popup.NoAutoClose
+
+        property string noticeTitle:      ""
+        property string noticeText:       ""
+        property string noticeSeverity:   "info"
+        property int    noticeDurationMs: 4200
+        property real   _shakeOffset:     0
+
+        function present() {
+            topNoticeCloseTimer.stop()
+            if (!opened) {
+                open()
+            }
+            _shakeOffset = 0
+            if (!mainWindow._reducedMotionEnabled) {
+                topNoticeShakeAnimation.restart()
+            }
+            topNoticeCloseTimer.interval = Math.max(2200, noticeDurationMs)
+            topNoticeCloseTimer.restart()
+        }
+
+        onClosed: {
+            _shakeOffset = 0
+            topNoticeCloseTimer.stop()
+        }
+
+        background: Rectangle {
+            anchors.fill:       parent
+            color:              Qt.rgba(
+                                    mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity).r,
+                                    mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity).g,
+                                    mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity).b,
+                                    0.14
+                                )
+            radius:             ScreenTools.defaultFontPixelHeight * 0.46
+            border.width:       1
+            border.color:       mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity)
+        }
+
+        contentItem: Item {
+            implicitHeight: transientTopNoticeContent.implicitHeight + (ScreenTools.defaultFontPixelHeight * 0.9)
+
+            RowLayout {
+                id:                     transientTopNoticeContent
+                anchors.fill:           parent
+                anchors.leftMargin:     ScreenTools.defaultFontPixelWidth * 0.9
+                anchors.rightMargin:    ScreenTools.defaultFontPixelWidth * 0.9
+                anchors.topMargin:      ScreenTools.defaultFontPixelHeight * 0.45
+                anchors.bottomMargin:   ScreenTools.defaultFontPixelHeight * 0.45
+                spacing:                ScreenTools.defaultFontPixelWidth * 0.8
+
+                Rectangle {
+                    Layout.alignment:    Qt.AlignTop
+                    width:               ScreenTools.defaultFontPixelHeight * 1.2
+                    height:              width
+                    radius:              width / 2
+                    color:               Qt.rgba(
+                                            mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity).r,
+                                            mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity).g,
+                                            mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity).b,
+                                            0.18
+                                        )
+                    border.width:        1
+                    border.color:        mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity)
+
+                    QGCLabel {
+                        anchors.centerIn:   parent
+                        text:               mainWindow._transientNoticeGlyph(transientTopNoticePopup.noticeSeverity)
+                        font.pointSize:     ScreenTools.defaultFontPointSize
+                        font.weight:        Font.DemiBold
+                        color:              mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity)
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth:   true
+                    spacing:            ScreenTools.defaultFontPixelHeight * 0.12
+
+                    QGCLabel {
+                        Layout.fillWidth:   true
+                        text:               transientTopNoticePopup.noticeTitle
+                        font.pointSize:     ScreenTools.smallFontPointSize
+                        font.weight:        Font.DemiBold
+                        color:              mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity)
+                        elide:              Text.ElideRight
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth:   true
+                        text:               transientTopNoticePopup.noticeText
+                        font.pointSize:     ScreenTools.defaultFontPointSize
+                        wrapMode:           Text.WordWrap
+                        maximumLineCount:   2
+                        elide:              Text.ElideRight
+                        color:              mainWindow._transientNoticeAccentColor(transientTopNoticePopup.noticeSeverity)
+                    }
+                }
+            }
+        }
+
+        enter: Transition {
+            NumberAnimation {
+                property:   "opacity"
+                from:       0
+                to:         1
+                duration:   mainWindow._reducedMotionEnabled ? 0 : (ScreenTools.interactionAnimationDuration + 40)
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        exit: Transition {
+            NumberAnimation {
+                property:   "opacity"
+                from:       1
+                to:         0
+                duration:   mainWindow._reducedMotionEnabled ? 0 : ScreenTools.interactionAnimationDuration
+                easing.type: Easing.InCubic
+            }
+        }
+
+        Timer {
+            id:         topNoticeCloseTimer
+            interval:   transientTopNoticePopup.noticeDurationMs
+            repeat:     false
+            onTriggered: transientTopNoticePopup.close()
+        }
+
+        SequentialAnimation {
+            id: topNoticeShakeAnimation
+            running: false
+
+            NumberAnimation { target: transientTopNoticePopup; property: "_shakeOffset"; to: -10; duration: 55; easing.type: Easing.OutQuad }
+            NumberAnimation { target: transientTopNoticePopup; property: "_shakeOffset"; to: 10; duration: 75; easing.type: Easing.InOutQuad }
+            NumberAnimation { target: transientTopNoticePopup; property: "_shakeOffset"; to: -7; duration: 65; easing.type: Easing.InOutQuad }
+            NumberAnimation { target: transientTopNoticePopup; property: "_shakeOffset"; to: 7; duration: 65; easing.type: Easing.InOutQuad }
+            NumberAnimation { target: transientTopNoticePopup; property: "_shakeOffset"; to: 0; duration: 55; easing.type: Easing.OutQuad }
+        }
+
+        MouseArea {
+            anchors.fill:   parent
+            hoverEnabled:   true
+            onClicked:      transientTopNoticePopup.close()
         }
     }
 

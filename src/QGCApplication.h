@@ -112,6 +112,9 @@ public slots:
     /// Show modal application message to the user
     void showAppMessage(const QString &message, const QString &title = QString());
 
+    /// Show a transient top-of-window application notice to the user
+    void showTransientTopMessage(const QString &message, const QString &title = QString(), int durationMs = 0, const QString &severity = QStringLiteral("info"));
+
     /// Show modal application message to the user about the need for a reboot. Multiple messages will be supressed if they occur
     /// one after the other.
     void showRebootAppMessage(const QString &message, const QString &title = QString());

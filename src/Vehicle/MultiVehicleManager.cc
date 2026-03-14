@@ -156,7 +156,7 @@ void MultiVehicleManager::_vehicleHeartbeatInfo(LinkInterface* link, int vehicle
     emit vehicleAdded(vehicle);
 
     if (_vehicles->count() > 1) {
-        qgcApp()->showAppMessage(tr("Connected to Vehicle %1").arg(vehicleId));
+        qgcApp()->showTransientTopMessage(tr("Connected to Vehicle %1").arg(vehicleId), tr("Vehicle Connected"), 3200, QStringLiteral("success"));
     } else {
         setActiveVehicle(vehicle);
     }
