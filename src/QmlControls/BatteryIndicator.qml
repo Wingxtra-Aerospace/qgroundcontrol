@@ -241,27 +241,40 @@ Item {
                 color:              getBatteryColor()
             }
 
-           ColumnLayout {
-                id:                     batteryInfoColumn
-                anchors.top:            parent.top
-                anchors.bottom:         parent.bottom
-                spacing:                0
+            Item {
+                id:                         batteryInfoContainer
+                anchors.verticalCenter:     parent.verticalCenter
+                anchors.verticalCenterOffset: secondaryIndicatorLabel.visible
+                                                ? -Math.round(ScreenTools.defaultFontPixelHeight * (_showBoth ? 0.28 : 0.12))
+                                                : 0
+                width:                      Math.max(primaryIndicatorLabel.implicitWidth, secondaryIndicatorLabel.visible ? secondaryIndicatorLabel.implicitWidth : 0)
+                height:                     primaryIndicatorLabel.implicitHeight + (secondaryIndicatorLabel.visible ? (batteryInfoColumn.spacing + secondaryIndicatorLabel.implicitHeight) : 0)
 
-                QGCLabel {
-                    Layout.alignment:       Qt.AlignHCenter
-                    verticalAlignment:      Text.AlignVCenter
-                    color:                  qgcPal.text
-                    text:                   getPrimaryIndicatorText()
-                    font.pointSize:         _showBoth ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
-                    visible:                _showBoth || _showPercentage || _showVoltage
-                }
+                Column {
+                    id:             batteryInfoColumn
+                    anchors.fill:   parent
+                    spacing:        secondaryIndicatorLabel.visible ? Math.max(0, Math.round(ScreenTools.defaultFontPixelHeight * 0.04)) : 0
 
-                QGCLabel {
-                    Layout.alignment:       Qt.AlignHCenter
-                    font.pointSize:         _showBoth ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
-                    color:                  qgcPal.text
-                    text:                   getSecondaryIndicatorText()
-                    visible:                getSecondaryIndicatorText() !== ""
+                    QGCLabel {
+                        id:                     primaryIndicatorLabel
+                        width:                  parent.width
+                        horizontalAlignment:    Text.AlignHCenter
+                        verticalAlignment:      Text.AlignVCenter
+                        color:                  qgcPal.text
+                        text:                   getPrimaryIndicatorText()
+                        font.pointSize:         ScreenTools.mediumFontPointSize
+                        visible:                _showBoth || _showPercentage || _showVoltage
+                    }
+
+                    QGCLabel {
+                        id:                     secondaryIndicatorLabel
+                        width:                  parent.width
+                        horizontalAlignment:    Text.AlignHCenter
+                        color:                  qgcPal.text
+                        text:                   getSecondaryIndicatorText()
+                        font.pointSize:         _showBoth ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
+                        visible:                getSecondaryIndicatorText() !== ""
+                    }
                 }
             }
         }
