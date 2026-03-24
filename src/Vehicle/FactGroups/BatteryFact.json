@@ -32,8 +32,27 @@
     "units":            "v"
 },
 {
+    "name":             "cellVoltage",
+    "shortDesc":        "Cell Voltage",
+    "type":             "double",
+    "decimalPlaces":    2,
+    "units":            "v"
+},
+{
+    "name":             "cellCount",
+    "shortDesc":        "Cell Count",
+    "type":             "uint8"
+},
+{
     "name":             "percentRemaining",
     "shortDesc":        "Percent",
+    "type":             "double",
+    "decimalPlaces":    0,
+    "units":            "%"
+},
+{
+    "name":             "displayPercentRemaining",
+    "shortDesc":        "Display Percent",
     "type":             "double",
     "decimalPlaces":    0,
     "units":            "%"

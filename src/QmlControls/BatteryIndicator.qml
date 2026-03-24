@@ -85,79 +85,150 @@ Item {
             anchors.top:    parent.top
             anchors.bottom: parent.bottom
 
-            function getBatteryColor() {
-                switch (battery.chargeState.rawValue) {
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_OK:
-                        if (!isNaN(battery.percentRemaining.rawValue)) {
-                            if (battery.percentRemaining.rawValue > threshold1) {
-                                return qgcPal.colorGreen 
-                            } else if (battery.percentRemaining.rawValue > threshold2) {
-                                return qgcPal.colorYellowGreen 
-                            } else {
-                                return qgcPal.colorYellow 
-                            }
-                        } else {
-                            return qgcPal.text
-                        }
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_LOW:
-                        return qgcPal.colorOrange
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_CRITICAL:
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_EMERGENCY:
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_FAILED:
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_UNHEALTHY:
-                        return qgcPal.colorRed
-                    default:
-                        return qgcPal.text
+            function _isFiniteNumber(value) {
+                return typeof value === "number" && isFinite(value)
+            }
+
+            function _clampPercent(value) {
+                return Math.max(0, Math.min(100, value))
+            }
+
+            function getBatteryCellVoltageText() {
+                if (_isFiniteNumber(Number(battery.cellVoltage.rawValue))) {
+                    return battery.cellVoltage.valueString + "V"
                 }
-            }    
+                return ""
+            }
+
+            function getBatteryVoltageText() {
+                if (_isFiniteNumber(Number(battery.voltage.rawValue))) {
+                    return battery.voltage.valueString + "V"
+                } else if (battery.chargeState.rawValue !== MAVLink.MAV_BATTERY_CHARGE_STATE_UNDEFINED) {
+                    return battery.chargeState.enumStringValue
+                }
+                return qsTr("n/a")
+            }
+
+            function getEffectivePercentRemaining() {
+                const displayPercent = Number(battery.displayPercentRemaining.rawValue)
+                if (_isFiniteNumber(displayPercent)) {
+                    return _clampPercent(displayPercent)
+                }
+
+                const reportedPercent = Number(battery.percentRemaining.rawValue)
+                if (_isFiniteNumber(reportedPercent)) {
+                    return _clampPercent(reportedPercent)
+                }
+
+                return NaN
+            }
+
+            function getBatteryLevelClass() {
+                switch (battery.chargeState.rawValue) {
+                case MAVLink.MAV_BATTERY_CHARGE_STATE_LOW:
+                    return "low"
+                case MAVLink.MAV_BATTERY_CHARGE_STATE_CRITICAL:
+                    return "critical"
+                case MAVLink.MAV_BATTERY_CHARGE_STATE_EMERGENCY:
+                case MAVLink.MAV_BATTERY_CHARGE_STATE_FAILED:
+                case MAVLink.MAV_BATTERY_CHARGE_STATE_UNHEALTHY:
+                    return "emergency"
+                default:
+                    break
+                }
+
+                const effectivePercent = getEffectivePercentRemaining()
+                if (_isFiniteNumber(effectivePercent)) {
+                    if (effectivePercent > threshold1) {
+                        return "green"
+                    } else if (effectivePercent > threshold2) {
+                        return "yellowGreen"
+                    } else {
+                        return "yellow"
+                    }
+                }
+
+                return "unknown"
+            }
+
+            function getBatteryColor() {
+                switch (getBatteryLevelClass()) {
+                case "green":
+                    return qgcPal.colorGreen
+                case "yellowGreen":
+                    return qgcPal.colorYellowGreen
+                case "yellow":
+                    return qgcPal.colorYellow
+                case "low":
+                    return qgcPal.colorOrange
+                case "critical":
+                case "emergency":
+                    return qgcPal.colorRed
+                default:
+                    return qgcPal.text
+                }
+            }
 
             function getBatterySvgSource() {
-                switch (battery.chargeState.rawValue) {
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_OK:
-                        if (!isNaN(battery.percentRemaining.rawValue)) {
-                            if (battery.percentRemaining.rawValue > threshold1) {
-                                return "/qmlimages/BatteryGreen.svg"
-                            } else if (battery.percentRemaining.rawValue > threshold2) {
-                                return "/qmlimages/BatteryYellowGreen.svg"
-                            } else {
-                                return "/qmlimages/BatteryYellow.svg"    
-                            } 
-                        }
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_LOW:
-                        return "/qmlimages/BatteryOrange.svg" // Low with orange svg
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_CRITICAL:
-                        return "/qmlimages/BatteryCritical.svg" // Critical with red svg
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_EMERGENCY:
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_FAILED:
-                    case MAVLink.MAV_BATTERY_CHARGE_STATE_UNHEALTHY:
-                        return "/qmlimages/BatteryEMERGENCY.svg" // Exclamation mark
-                    default:
-                        return "/qmlimages/Battery.svg" // Fallback if percentage is unavailable
+                switch (getBatteryLevelClass()) {
+                case "green":
+                    return "/qmlimages/BatteryGreen.svg"
+                case "yellowGreen":
+                    return "/qmlimages/BatteryYellowGreen.svg"
+                case "yellow":
+                    return "/qmlimages/BatteryYellow.svg"
+                case "low":
+                    return "/qmlimages/BatteryOrange.svg"
+                case "critical":
+                    return "/qmlimages/BatteryCritical.svg"
+                case "emergency":
+                    return "/qmlimages/BatteryEMERGENCY.svg"
+                default:
+                    return "/qmlimages/Battery.svg"
                 }
             }
 
             function getBatteryPercentageText() {
-                if (!isNaN(battery.percentRemaining.rawValue)) {
-                    if (battery.percentRemaining.rawValue > 98.9) {
+                const effectivePercent = getEffectivePercentRemaining()
+                if (_isFiniteNumber(effectivePercent)) {
+                    if (effectivePercent > 98.9) {
                         return qsTr("100%")
                     } else {
-                        return battery.percentRemaining.valueString + battery.percentRemaining.units
+                        return Math.round(effectivePercent) + "%"
                     }
                 } else if (!isNaN(battery.voltage.rawValue)) {
-                    return battery.voltage.valueString + battery.voltage.units
+                    return getBatteryVoltageText()
                 } else if (battery.chargeState.rawValue !== MAVLink.MAV_BATTERY_CHARGE_STATE_UNDEFINED) {
                     return battery.chargeState.enumStringValue
                 }
                 return qsTr("n/a")
             }
 
-            function getBatteryVoltageText() {
-                if (!isNaN(battery.voltage.rawValue)) {
-                    return battery.voltage.valueString + battery.voltage.units
-                } else if (battery.chargeState.rawValue !== MAVLink.MAV_BATTERY_CHARGE_STATE_UNDEFINED) {
-                    return battery.chargeState.enumStringValue
+            function getPrimaryIndicatorText() {
+                if (_showPercentage || _showBoth) {
+                    return getBatteryPercentageText()
                 }
-                return qsTr("n/a")
+                const cellVoltageText = getBatteryCellVoltageText()
+                return cellVoltageText !== "" ? cellVoltageText : getBatteryVoltageText()
+            }
+
+            function getSecondaryIndicatorText() {
+                const cellVoltageText = getBatteryCellVoltageText()
+                const voltageText = getBatteryVoltageText()
+
+                if (_showVoltage) {
+                    return cellVoltageText !== "" ? voltageText : ""
+                }
+                if (_showPercentage) {
+                    return cellVoltageText
+                }
+                if (_showBoth) {
+                    if (cellVoltageText !== "") {
+                        return cellVoltageText + " | " + voltageText
+                    }
+                    return voltageText
+                }
+                return ""
             }
 
             QGCColoredImage {
@@ -180,17 +251,17 @@ Item {
                     Layout.alignment:       Qt.AlignHCenter
                     verticalAlignment:      Text.AlignVCenter
                     color:                  qgcPal.text
-                    text:                   getBatteryPercentageText()
+                    text:                   getPrimaryIndicatorText()
                     font.pointSize:         _showBoth ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
-                    visible:                _showBoth || _showPercentage
+                    visible:                _showBoth || _showPercentage || _showVoltage
                 }
 
                 QGCLabel {
                     Layout.alignment:       Qt.AlignHCenter
                     font.pointSize:         _showBoth ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
                     color:                  qgcPal.text
-                    text:                   getBatteryVoltageText()
-                    visible:                _showBoth || _showVoltage
+                    text:                   getSecondaryIndicatorText()
+                    visible:                getSecondaryIndicatorText() !== ""
                 }
             }
         }
@@ -212,7 +283,9 @@ Item {
                     property bool currentAvailable:          !isNaN(battery.current.rawValue)
                     property bool mahConsumedAvailable:      !isNaN(battery.mahConsumed.rawValue)
                     property bool timeRemainingAvailable:    !isNaN(battery.timeRemaining.rawValue)
-                    property bool percentRemainingAvailable: !isNaN(battery.percentRemaining.rawValue)
+                    property bool percentRemainingAvailable: !isNaN(battery.displayPercentRemaining.rawValue) || !isNaN(battery.percentRemaining.rawValue)
+                    property bool cellVoltageAvailable:      !isNaN(battery.cellVoltage.rawValue)
+                    property bool cellCountAvailable:        Number(battery.cellCount.rawValue) > 0
                     property bool chargeStateAvailable:      battery.chargeState.rawValue !== MAVLink.MAV_BATTERY_CHARGE_STATE_UNDEFINED
                 }
             }
@@ -248,13 +321,27 @@ Item {
 
                     LabelledLabel {
                         label:      qsTr("Remaining")
-                        labelText:  object.percentRemaining.valueString + " " + object.percentRemaining.units
+                        labelText:  !isNaN(object.displayPercentRemaining.rawValue)
+                                        ? (object.displayPercentRemaining.valueString + " " + object.displayPercentRemaining.units)
+                                        : (object.percentRemaining.valueString + " " + object.percentRemaining.units)
                         visible:    batteryValuesAvailable.percentRemainingAvailable
                     }
 
                     LabelledLabel {
+                        label:      qsTr("Cell Voltage")
+                        labelText:  object.cellVoltage.valueString + " V"
+                        visible:    batteryValuesAvailable.cellVoltageAvailable
+                    }
+
+                    LabelledLabel {
+                        label:      qsTr("Cells")
+                        labelText:  object.cellCount.rawValue.toString()
+                        visible:    batteryValuesAvailable.cellCountAvailable
+                    }
+
+                    LabelledLabel {
                         label:      qsTr("Voltage")
-                        labelText:  object.voltage.valueString + " " + object.voltage.units
+                        labelText:  object.voltage.valueString + " V"
                     }
 
                     LabelledLabel {
@@ -298,6 +385,20 @@ Item {
                     visible:        _fact,visible
 
                     property Fact _fact: QGroundControl.settingsManager.batteryIndicatorSettings.valueDisplay
+                }
+
+                LabelledFactTextField {
+                    label:  qsTr("Cell Count Override")
+                    fact:   _cellCountOverrideFact
+
+                    property Fact _cellCountOverrideFact: QGroundControl.settingsManager.batteryIndicatorSettings.cellCountOverride
+                }
+
+                QGCLabel {
+                    Layout.fillWidth:   true
+                    wrapMode:           Text.WordWrap
+                    color:              qgcPal.text
+                    text:               qsTr("Set to 0 for Auto. Enter a manual series cell count like 12 for a 12S battery when the vehicle does not report one.")
                 }
 
                 ColumnLayout {

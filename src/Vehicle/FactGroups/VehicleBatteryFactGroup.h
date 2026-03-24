@@ -19,9 +19,12 @@ class VehicleBatteryFactGroup : public FactGroup
     Q_PROPERTY(Fact *type               READ type               CONSTANT)
     Q_PROPERTY(Fact *temperature        READ temperature        CONSTANT)
     Q_PROPERTY(Fact *voltage            READ voltage            CONSTANT)
+    Q_PROPERTY(Fact *cellVoltage        READ cellVoltage        CONSTANT)
+    Q_PROPERTY(Fact *cellCount          READ cellCount          CONSTANT)
     Q_PROPERTY(Fact *current            READ current            CONSTANT)
     Q_PROPERTY(Fact *mahConsumed        READ mahConsumed        CONSTANT)
     Q_PROPERTY(Fact *percentRemaining   READ percentRemaining   CONSTANT)
+    Q_PROPERTY(Fact *displayPercentRemaining READ displayPercentRemaining CONSTANT)
     Q_PROPERTY(Fact *timeRemaining      READ timeRemaining      CONSTANT)
     Q_PROPERTY(Fact *timeRemainingStr   READ timeRemainingStr   CONSTANT)
     Q_PROPERTY(Fact *chargeState        READ chargeState        CONSTANT)
@@ -34,7 +37,10 @@ public:
     Fact *function() { return &_batteryFunctionFact; }
     Fact *type() { return &_batteryTypeFact; }
     Fact *voltage() { return &_voltageFact; }
+    Fact *cellVoltage() { return &_cellVoltageFact; }
+    Fact *cellCount() { return &_cellCountFact; }
     Fact *percentRemaining() { return &_percentRemainingFact; }
+    Fact *displayPercentRemaining() { return &_displayPercentRemainingFact; }
     Fact *mahConsumed() { return &_mahConsumedFact; }
     Fact *current() { return &_currentFact; }
     Fact *temperature() { return &_temperatureFact; }
@@ -64,10 +70,13 @@ private:
     Fact _batteryFunctionFact = Fact(0, QStringLiteral("batteryFunction"), FactMetaData::valueTypeUint8);
     Fact _batteryTypeFact = Fact(0, QStringLiteral("batteryType"), FactMetaData::valueTypeUint8);
     Fact _voltageFact = Fact(0, QStringLiteral("voltage"), FactMetaData::valueTypeDouble);
+    Fact _cellVoltageFact = Fact(0, QStringLiteral("cellVoltage"), FactMetaData::valueTypeDouble);
+    Fact _cellCountFact = Fact(0, QStringLiteral("cellCount"), FactMetaData::valueTypeUint8);
     Fact _currentFact = Fact(0, QStringLiteral("current"), FactMetaData::valueTypeDouble);
     Fact _mahConsumedFact = Fact(0, QStringLiteral("mahConsumed"), FactMetaData::valueTypeDouble);
     Fact _temperatureFact = Fact(0, QStringLiteral("temperature"), FactMetaData::valueTypeDouble);
     Fact _percentRemainingFact = Fact(0, QStringLiteral("percentRemaining"), FactMetaData::valueTypeDouble);
+    Fact _displayPercentRemainingFact = Fact(0, QStringLiteral("displayPercentRemaining"), FactMetaData::valueTypeDouble);
     Fact _timeRemainingFact = Fact(0, QStringLiteral("timeRemaining"), FactMetaData::valueTypeDouble);
     Fact _timeRemainingStrFact = Fact(0, QStringLiteral("timeRemainingStr"), FactMetaData::valueTypeString);
     Fact _chargeStateFact = Fact(0, QStringLiteral("chargeState"), FactMetaData::valueTypeUint8);

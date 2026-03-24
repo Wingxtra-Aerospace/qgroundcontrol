@@ -23,6 +23,12 @@
             "type": "uint32",
             "default": 60,
             "units": "%"
+        },
+        {
+            "name": "cellCountOverride",
+            "shortDesc": "Battery cell count override. Set to 0 for auto detection.",
+            "type": "uint32",
+            "default": 0
         }
     ]
 }

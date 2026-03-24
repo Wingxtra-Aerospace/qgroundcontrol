@@ -37,6 +37,15 @@ DECLARE_SETTINGSFACT_NO_FUNC(BatteryIndicatorSettings, threshold2)
     return _threshold2Fact;
 }
 
+DECLARE_SETTINGSFACT_NO_FUNC(BatteryIndicatorSettings, cellCountOverride)
+{
+    if (!_cellCountOverrideFact) {
+        _cellCountOverrideFact = _createSettingsFact(cellCountOverrideName);
+        connect(_cellCountOverrideFact, &SettingsFact::rawValueChanged, this, &BatteryIndicatorSettings::_cellCountOverrideChanged);
+    }
+    return _cellCountOverrideFact;
+}
+
 // Change handlers for thresholds
 void BatteryIndicatorSettings::_threshold1Changed() {
     validateThreshold1(); // Call validation when threshold1 value changes
@@ -44,6 +53,10 @@ void BatteryIndicatorSettings::_threshold1Changed() {
 
 void BatteryIndicatorSettings::_threshold2Changed() {
     validateThreshold2(); // Call validation when threshold2 value changes
+}
+
+void BatteryIndicatorSettings::_cellCountOverrideChanged() {
+    validateCellCountOverride();
 }
 
 // Validate threshold1 value
@@ -56,6 +69,11 @@ void BatteryIndicatorSettings::validateThreshold1() {
 void BatteryIndicatorSettings::validateThreshold2() {
     int value = threshold2()->rawValue().toInt();
     setThreshold2(value); // Call the setter with the current value
+}
+
+void BatteryIndicatorSettings::validateCellCountOverride() {
+    int value = cellCountOverride()->rawValue().toInt();
+    setCellCountOverride(value);
 }
 
 // Set threshold1 with validation
@@ -90,5 +108,15 @@ void BatteryIndicatorSettings::setThreshold2(int value) {
     } else {
         // Ensure threshold2 is less than threshold1
         threshold2()->setRawValue(threshold1()->rawValue().toInt() - 1);
+    }
+}
+
+void BatteryIndicatorSettings::setCellCountOverride(int value) {
+    if (value < 0) {
+        cellCountOverride()->setRawValue(0);
+    } else if (value > 32) {
+        cellCountOverride()->setRawValue(32);
+    } else {
+        cellCountOverride()->setRawValue(value);
     }
 }
