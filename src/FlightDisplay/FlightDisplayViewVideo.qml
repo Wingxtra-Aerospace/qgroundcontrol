@@ -52,31 +52,94 @@ Item {
 
     property double _thermalHeightFactor: 0.85 //-- TODO
 
-        Image {
-            id:             noVideo
-            anchors.fill:   parent
-            source:         "/res/NoVideoBackground.jpg"
-            fillMode:       Image.PreserveAspectCrop
-            visible:        !(QGroundControl.videoManager.decoding)
+    Rectangle {
+        id:             noVideo
+        anchors.fill:   parent
+        visible:        !(QGroundControl.videoManager.decoding)
+        color:          "#05070A"
+
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#0D141D" }
+            GradientStop { position: 0.45; color: "#070B10" }
+            GradientStop { position: 1.0; color: "#020305" }
+        }
+
+        Rectangle {
+            anchors.fill:       parent
+            color:              "transparent"
+            border.color:       "#1A2430"
+            border.width:       1
+            opacity:            0.45
+        }
+
+        Rectangle {
+            width:              Math.min(parent.width * 0.44, ScreenTools.defaultFontPixelWidth * 34)
+            height:             Math.min(parent.height * 0.24, ScreenTools.defaultFontPixelHeight * 8)
+            anchors.centerIn:   parent
+            radius:             ScreenTools.defaultFontPixelWidth
+            color:              "#121A24"
+            opacity:            0.9
+            border.color:       "#2A3645"
+            border.width:       1
+        }
+
+        Rectangle {
+            width:              ScreenTools.defaultFontPixelWidth * 5
+            height:             ScreenTools.defaultFontPixelWidth * 5
+            radius:             width / 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter:   parent.verticalCenter
+            anchors.verticalCenterOffset: -ScreenTools.defaultFontPixelHeight * 1.4
+            color:              "#0E2632"
+            border.color:       "#3C8DFF"
+            border.width:       1
+            opacity:            0.95
 
             Rectangle {
-                anchors.centerIn:   parent
-                width:              noVideoLabel.contentWidth + ScreenTools.defaultFontPixelHeight
-                height:             noVideoLabel.contentHeight + ScreenTools.defaultFontPixelHeight
-                radius:             ScreenTools.defaultFontPixelWidth / 2
-                color:              "black"
-                opacity:            0.5
+                width:          parent.width * 0.46
+                height:         parent.height * 0.30
+                radius:         ScreenTools.defaultFontPixelWidth * 0.3
+                anchors.centerIn: parent
+                anchors.horizontalCenterOffset: -ScreenTools.defaultFontPixelWidth * 0.1
+                color:          "transparent"
+                border.color:   "#D7E8FF"
+                border.width:   1
             }
 
-            QGCLabel {
-                id:                 noVideoLabel
-                text:               QGroundControl.settingsManager.videoSettings.streamEnabled.rawValue ? qsTr("WAITING FOR VIDEO") : qsTr("VIDEO DISABLED")
-                font.bold:          true
-                color:              "white"
-                font.pointSize:     useSmallFont ? ScreenTools.smallFontPointSize : ScreenTools.largeFontPointSize
-                anchors.centerIn:   parent
+            Rectangle {
+                width:          parent.width * 0.16
+                height:         parent.height * 0.16
+                radius:         ScreenTools.defaultFontPixelWidth * 0.08
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left:   parent.horizontalCenter
+                anchors.leftMargin: ScreenTools.defaultFontPixelWidth * 0.35
+                color:          "#D7E8FF"
             }
         }
+
+        QGCLabel {
+            id:                 noVideoLabel
+            text:               QGroundControl.settingsManager.videoSettings.streamEnabled.rawValue ? qsTr("WAITING FOR VIDEO") : qsTr("VIDEO DISABLED")
+            font.bold:          true
+            color:              "#F3F7FB"
+            font.pointSize:     useSmallFont ? ScreenTools.smallFontPointSize : ScreenTools.largeFontPointSize
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter:   parent.verticalCenter
+            anchors.verticalCenterOffset: ScreenTools.defaultFontPixelHeight * 0.7
+        }
+
+        QGCLabel {
+            text:               QGroundControl.settingsManager.videoSettings.streamEnabled.rawValue ? qsTr("Video stream is connected but no frames are available yet.") : qsTr("Enable video streaming to show the camera feed here.")
+            color:              "#7F93A7"
+            font.pointSize:     useSmallFont ? ScreenTools.smallFontPointSize * 0.92 : ScreenTools.defaultFontPointSize
+            wrapMode:           Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+            width:              Math.min(parent.width * 0.34, ScreenTools.defaultFontPixelWidth * 38)
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top:        noVideoLabel.bottom
+            anchors.topMargin:  ScreenTools.defaultFontPixelHeight * 0.35
+        }
+    }
 
     Rectangle {
         id:             videoBackground

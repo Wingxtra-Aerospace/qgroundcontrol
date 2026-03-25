@@ -31,6 +31,7 @@ SettingsPage {
     property bool   _isTCP:                     _isStreamSource && (_videoSource === _videoSettings.tcpVideoSource)
     property bool   _isMPEGTS:                  _isStreamSource && (_videoSource === _videoSettings.mpegtsVideoSource)
     property bool   _videoAutoStreamConfig:     _videoManager.autoStreamConfigured
+    property bool   _videoPausedByUser:         _videoManager.videoPausedByUser
     property bool   _videoSourceDisabled:       _videoSource === _videoSettings.disabledVideoSource
     property real   _urlFieldWidth:             ScreenTools.defaultFontPixelWidth * 40
     property bool   _requiresUDPUrl:            _isUDP264 || _isUDP265 || _isMPEGTS
@@ -112,6 +113,44 @@ SettingsPage {
             fact:               _videoSettings.forceVideoDecoder
             visible:            fact.visible
             indexModel:         false
+        }
+    }
+
+    SettingsGroupLayout {
+        Layout.fillWidth:   true
+        heading:            qsTr("Live Session")
+        visible:            _videoManager.hasVideo
+
+        QGCLabel {
+            Layout.fillWidth:   true
+            wrapMode:           Text.WordWrap
+            text:               _videoAutoStreamConfig
+                                ? qsTr("The camera stream is auto-discovered. Use these controls to stop or restart the current session without changing the stream source.")
+                                : qsTr("Use these controls to stop or restart the current video session.")
+        }
+
+        QGCLabel {
+            Layout.fillWidth:   true
+            text:               _videoPausedByUser
+                                ? qsTr("Status: Stopped by user")
+                                : (_videoManager.streaming
+                                    ? qsTr("Status: Streaming")
+                                    : qsTr("Status: Ready"))
+        }
+
+        RowLayout {
+            Layout.fillWidth:   true
+
+            QGCButton {
+                text:               qsTr("Stop Video")
+                enabled:            !_videoPausedByUser
+                onClicked:          _videoManager.pauseVideo()
+            }
+
+            QGCButton {
+                text:               _videoPausedByUser ? qsTr("Start Video") : qsTr("Restart Video")
+                onClicked:          _videoManager.restartVideo()
+            }
         }
     }
 

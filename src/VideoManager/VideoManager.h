@@ -42,6 +42,7 @@ class VideoManager : public QObject
     Q_PROPERTY(bool     isUvc                   READ isUvc                                      NOTIFY isUvcChanged)
     Q_PROPERTY(bool     recording               READ recording                                  NOTIFY recordingChanged)
     Q_PROPERTY(bool     streaming               READ streaming                                  NOTIFY streamingChanged)
+    Q_PROPERTY(bool     videoPausedByUser       READ videoPausedByUser                          NOTIFY videoPausedByUserChanged)
     Q_PROPERTY(double   aspectRatio             READ aspectRatio                                NOTIFY aspectRatioChanged)
     Q_PROPERTY(double   hfov                    READ hfov                                       NOTIFY aspectRatioChanged)
     Q_PROPERTY(double   thermalAspectRatio      READ thermalAspectRatio                         NOTIFY aspectRatioChanged)
@@ -58,6 +59,8 @@ public:
     static void registerQmlTypes();
 
     Q_INVOKABLE void grabImage(const QString &imageFile = QString());
+    Q_INVOKABLE void pauseVideo();
+    Q_INVOKABLE void restartVideo();
     Q_INVOKABLE void startRecording(const QString &videoFile = QString());
     Q_INVOKABLE void startVideo();
     Q_INVOKABLE void stopRecording();
@@ -74,6 +77,7 @@ public:
     bool isUvc() const;
     bool recording() const { return _recording; }
     bool streaming() const { return _streaming; }
+    bool videoPausedByUser() const { return _videoPausedByUser; }
     double aspectRatio() const;
     double hfov() const;
     double thermalAspectRatio() const;
@@ -99,6 +103,7 @@ signals:
     void recordingChanged();
     void recordingStarted(const QString &filename);
     void streamingChanged();
+    void videoPausedByUserChanged();
     void uvcVideoSourceIDChanged();
     void videoSizeChanged();
 
@@ -129,6 +134,7 @@ private:
     QAtomicInteger<bool> _decoding = false;
     QAtomicInteger<bool> _recording = false;
     QAtomicInteger<bool> _streaming = false;
+    bool _videoPausedByUser = false;
     QSize _videoSize;
     QString _imageFile;
     QString _uvcVideoSourceID;

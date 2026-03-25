@@ -371,7 +371,11 @@ void VideoManager::_videoSourceChanged()
         emit isAutoStreamChanged();
 
         if (hasVideo()) {
-            _restartAllVideos();
+            if (_videoPausedByUser) {
+                stopVideo();
+            } else {
+                _restartAllVideos();
+            }
         } else {
             stopVideo();
         }
@@ -571,7 +575,7 @@ void VideoManager::_setActiveVehicle(Vehicle *vehicle)
         if (_activeVehicle->cameraManager()) {
             (void) connect(_activeVehicle->cameraManager(), &QGCCameraManager::streamChanged, this, &VideoManager::_videoSourceChanged);
             MavlinkCameraControl *pCamera = _activeVehicle->cameraManager()->currentCameraInstance();
-            if (pCamera) {
+            if (pCamera && !_videoPausedByUser) {
                 pCamera->resumeStream();
             }
         }
@@ -712,7 +716,9 @@ void VideoManager::_initVideoReceiver(VideoReceiver *receiver, QQuickWindow *win
     (void) connect(receiver, &VideoReceiver::onStopComplete, this, [this, receiver](VideoReceiver::STATUS status) {
         qCDebug(VideoManagerLog) << "Stop complete" << receiver->name() << receiver->uri()  << ", status:" << status;
         receiver->setStarted(false);
-        if (status == VideoReceiver::STATUS_INVALID_URL) {
+        if (_videoPausedByUser) {
+            qCDebug(VideoManagerLog) << "Video paused by user. Not restarting" << receiver->name();
+        } else if (status == VideoReceiver::STATUS_INVALID_URL) {
             qCDebug(VideoManagerLog) << "Invalid video URL. Not restarting";
         } else {
             QTimer::singleShot(1000, receiver, [this, receiver]() {
@@ -783,9 +789,38 @@ void VideoManager::_initVideoReceiver(VideoReceiver *receiver, QQuickWindow *win
 
     _videoReceivers.append(receiver);
 
-    if (hasVideo()) {
+    if (hasVideo() && !_videoPausedByUser) {
         _startReceiver(receiver);
     }
+}
+
+void VideoManager::pauseVideo()
+{
+    if (_videoPausedByUser) {
+        return;
+    }
+
+    _videoPausedByUser = true;
+    emit videoPausedByUserChanged();
+
+    if (_activeVehicle && _activeVehicle->cameraManager()) {
+        MavlinkCameraControl *pCamera = _activeVehicle->cameraManager()->currentCameraInstance();
+        if (pCamera) {
+            pCamera->stopStream();
+        }
+    }
+
+    stopVideo();
+}
+
+void VideoManager::restartVideo()
+{
+    if (_videoPausedByUser) {
+        _videoPausedByUser = false;
+        emit videoPausedByUserChanged();
+    }
+
+    startVideo();
 }
 
 void VideoManager::startVideo()
@@ -793,6 +828,18 @@ void VideoManager::startVideo()
     if (!hasVideo()) {
         qCDebug(VideoManagerLog) << "Stream not enabled/configured";
         return;
+    }
+
+    if (_videoPausedByUser) {
+        _videoPausedByUser = false;
+        emit videoPausedByUserChanged();
+    }
+
+    if (_activeVehicle && _activeVehicle->cameraManager()) {
+        MavlinkCameraControl *pCamera = _activeVehicle->cameraManager()->currentCameraInstance();
+        if (pCamera) {
+            pCamera->resumeStream();
+        }
     }
 
     _restartAllVideos();
